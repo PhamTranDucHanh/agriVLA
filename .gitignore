@@ -9,3 +9,23 @@
 !demos/
 !demos/main_orange_juice.mp4
 !demos/main_orange_juice.gif
+
+# Light demo
+!my-vla-light-demo/
+
+# Scripts
+!my-vla-light-demo/scripts/
+!my-vla-light-demo/scripts/**
+
+# LoRA model
+!my-vla-light-demo/models/
+!my-vla-light-demo/models/light_lora_1000/
+!my-vla-light-demo/models/light_lora_1000/pretrained_model/
+!my-vla-light-demo/models/light_lora_1000/pretrained_model/**
+
+# Dataset
+!my-vla-light-demo/datasets/
+!my-vla-light-demo/datasets/light_switch_demo/
+!my-vla-light-demo/datasets/light_switch_demo/**
+
+
