@@ -1,5 +1,16 @@
 from pathlib import Path
 from datetime import datetime
+import argparse
+
+from esp32_client import ESP32Error, get_light_state, set_light
+
+parser = argparse.ArgumentParser(description="SmolVLA light demo with optional ESP32 control")
+parser.add_argument("--esp32", action="store_true", help="Send predictions to ESP32_URL")
+parser.add_argument("--validate-state", action="store_true", help="Skip commands already satisfied by ESP32 state")
+parser.add_argument("--no-video", action="store_true", help="Skip simulated MP4 generation")
+args = parser.parse_args() if __name__ == "__main__" else parser.parse_args([])
+if args.validate_state and not args.esp32:
+    parser.error("--validate-state requires --esp32")
 
 import imageio.v2 as imageio
 import numpy as np
@@ -148,7 +159,7 @@ preprocessor, postprocessor = make_smolvla_pre_post_processors(
 # VLA INFERENCE
 # ----------------------------------------------------------
 
-def infer(command: str):
+def infer(command: str, *, control_hardware=None):
 
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
@@ -196,6 +207,18 @@ def infer(command: str):
     else:
         semantic_action = "LIGHT_OFF"
         light_on = False
+
+    hardware_enabled = args.esp32 if control_hardware is None else control_hardware
+    if hardware_enabled:
+        try:
+            if not np.isfinite(light_value):
+                print("ESP32 command skipped: non-finite model action")
+            elif args.validate_state and get_light_state()["light_on"] == light_on:
+                print("NO_ACTION: light already in desired state (Python validation)")
+            else:
+                print("ESP32 response:", set_light(light_on))
+        except ESP32Error as error:
+            print("ESP32 communication failed:", error)
 
     return action, light_value, semantic_action, light_on
 
@@ -459,43 +482,47 @@ def make_video(
 # CLI
 # ----------------------------------------------------------
 
-print()
-print("=" * 60)
-print("SmolVLA Light Demo")
-print("=" * 60)
-
-while True:
-
-    command = input(
-        "\nNhập lệnh [bật đèn / tắt đèn / exit]: "
-    ).strip()
-
-    if command.lower() == "exit":
-        break
-
+if __name__ == "__main__":
     print()
-    print("Running VLA inference...")
+    print("=" * 60)
+    print("SmolVLA Light Demo")
+    print("=" * 60)
 
-    action, light_value, semantic_action, light_on = infer(
-        command
-    )
+    while True:
 
-    print()
-    print("---------------- RESULT ----------------")
-    print("TEXT            :", command)
-    print("ACTION VECTOR   :", action)
-    print("ACTION[0]       :", light_value)
-    print("SEMANTIC ACTION :", semantic_action)
-    print("----------------------------------------")
+        command = input(
+            "\nNhập lệnh [bật đèn / tắt đèn / exit]: "
+        ).strip()
 
-    video = make_video(
-        command,
-        action,
-        light_value,
-        semantic_action,
-        light_on,
-    )
+        if command.lower() == "exit":
+            break
 
-    print()
-    print("Video saved:")
-    print(video)
+        print()
+        print("Running VLA inference...")
+
+        action, light_value, semantic_action, light_on = infer(
+            command
+        )
+
+        print()
+        print("---------------- RESULT ----------------")
+        print("TEXT            :", command)
+        print("ACTION VECTOR   :", action)
+        print("ACTION[0]       :", light_value)
+        print("SEMANTIC ACTION :", semantic_action)
+        print("----------------------------------------")
+
+        if args.no_video:
+            continue
+
+        video = make_video(
+            command,
+            action,
+            light_value,
+            semantic_action,
+            light_on,
+        )
+
+        print()
+        print("Video saved:")
+        print(video)

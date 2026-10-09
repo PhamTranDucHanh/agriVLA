@@ -12,6 +12,18 @@
 
 # Light demo
 !my-vla-light-demo/
+!my-vla-light-demo/.gitignore
+!my-vla-light-demo/README.md
+!my-vla-light-demo/web/
+!my-vla-light-demo/web/*.html
+!my-vla-light-demo/web/*.css
+!my-vla-light-demo/web/*.js
+!my-vla-light-demo/firmware/
+!my-vla-light-demo/firmware/esp32_light/
+!my-vla-light-demo/firmware/esp32_light/platformio.ini
+!my-vla-light-demo/firmware/esp32_light/src/
+!my-vla-light-demo/firmware/esp32_light/src/main.cpp
+!my-vla-light-demo/firmware/esp32_light/src/config.example.h
 
 # Scripts
 !my-vla-light-demo/scripts/
@@ -27,5 +39,3 @@
 !my-vla-light-demo/datasets/
 !my-vla-light-demo/datasets/light_switch_demo/
 !my-vla-light-demo/datasets/light_switch_demo/**
-
-

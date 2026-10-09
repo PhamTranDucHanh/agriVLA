@@ -1,3 +1,5 @@
 .venv/
 __pycache__/
 *.pyc
+.pio/
+firmware/esp32_light/src/config.h

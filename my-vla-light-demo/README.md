@@ -301,7 +301,7 @@ LIGHT_ON
 bulb OFF → ON
 ```
 
-The light itself is currently simulated. No physical relay, LED, pump, or GPIO is controlled by this demo yet.
+By default the light is simulated. Optional ESP32 HTTP control is described below; the MP4 remains a simulated visualization, not evidence of physical LED behavior.
 
 ---
 
@@ -875,7 +875,7 @@ Current limitations include:
 1. The images are synthetic rather than real camera observations.
 2. `state[8]` contains synthetic values rather than real sensor measurements.
 3. Only `action[0]` currently has semantic meaning.
-4. The light is simulated rather than controlled through real hardware.
+4. Physical LED control requires optional ESP32 firmware and hardware setup below.
 5. The model has been fine-tuned on a small command set.
 6. The LoRA checkpoint is intended for demonstration rather than production control.
 7. The final actuator mapping is implemented in Python rather than on an embedded controller.
@@ -1044,3 +1044,129 @@ Target agricultural system:
 → embedded controller
 → real irrigation hardware
 ```
+
+## ESP32-S3 LED control over local Wi-Fi
+
+The existing SmolVLA base model and LoRA adapter stay on the laptop GPU.
+The integration runs after `postprocessor(action)`, tensor conversion and the
+existing sign mapping of `action[0]`. No training or text keyword matching is
+introduced. `scripts/esp32_client.py` handles HTTP independently from the model.
+
+### Prepare and flash hardware
+
+Confirm the actual board model, flash variant, USB CDC settings and pinout.
+`platformio.ini` is an example for ESP32-S3-DevKitC-1; change it for other boards.
+Use an external LED: confirmed GPIO → 220–330 Ω resistor → LED anode;
+LED cathode → GND. GPIO4 in the example is provisional. Do not assume a
+YOLO UNO built-in RGB LED supports `digitalWrite`. Never connect mains to GPIO.
+
+Copy `firmware/esp32_light/src/config.example.h` to `src/config.h` in the same
+project. Edit the ignored `config.h` with your Wi-Fi SSID, password and confirmed
+LED pin; keep credentials out of tracked files. The firmware starts with LED OFF,
+reconnects Wi-Fi automatically, and retains GPIO state during network loss.
+`light_on` reports the controller's commanded state, not a measured optical state.
+
+Install PlatformIO IDE in Windows VS Code and open
+`my-vla-light-demo/firmware/esp32_light`. If WSL filesystem or USB access causes
+problems, copy this directory to Windows for flashing while retaining the source
+in this repository. From that directory, in a PlatformIO-enabled terminal:
+
+```powershell
+pio run
+pio run --target upload --upload-port COM5
+pio device monitor --port COM5 --baud 115200
+```
+
+Replace `COM5` with the board's actual COM port. Read the actual IP from Serial
+Monitor. There is no configured physical board or confirmed GPIO in this repository.
+
+### Verify HTTP before running AI
+
+From the repository root in WSL, replace the example address with the printed IP:
+
+```bash
+export ESP32_URL=http://192.168.1.50
+curl --max-time 3 "$ESP32_URL/state"
+curl --max-time 3 -X POST "$ESP32_URL/light" -H 'Content-Type: text/plain' --data-binary ON
+curl --max-time 3 -X POST "$ESP32_URL/light" -H 'Content-Type: text/plain' --data-binary ON
+curl --max-time 3 -X POST "$ESP32_URL/light" -H 'Content-Type: text/plain' --data-binary OFF
+.venv/bin/python my-vla-light-demo/scripts/esp32_client.py state
+.venv/bin/python my-vla-light-demo/scripts/esp32_client.py on
+.venv/bin/python my-vla-light-demo/scripts/esp32_client.py off
+```
+
+Responses contain boolean `light_on`; POST also contains boolean `changed`.
+Repeated ON or OFF commands return `changed: false` and leave the output unchanged.
+Invalid commands return HTTP 400 JSON. Verify the physical LED as well as JSON.
+If Windows succeeds but WSL fails, check WSL-to-LAN connectivity and Windows
+network/firewall configuration before involving AI. Use trusted local Wi-Fi;
+these unauthenticated endpoints must not be exposed to the public Internet.
+
+### Run the existing model with hardware enabled
+
+Once the independent HTTP tests pass, from the repository root:
+
+```bash
+export ESP32_URL=http://192.168.1.50  # replace with the actual board IP
+.venv/bin/python my-vla-light-demo/scripts/demo_light_vla.py --esp32 --no-video
+```
+
+Enter `bật đèn`, then `tắt đèn`, and `exit` to quit. The ON/OFF command comes
+only from SmolVLA's postprocessed action. Transport failures are printed without
+preventing the inference result from being displayed. A failed POST may have
+reached the board before its response was lost; read `/state` to reconcile it.
+The client uses a three-second timeout per request and validates JSON booleans
+and the command acknowledgement.
+
+For external state validation:
+
+```bash
+.venv/bin/python my-vla-light-demo/scripts/demo_light_vla.py --esp32 --validate-state --no-video
+```
+
+After inference, Python reads `/state` and skips POST when the desired state
+already matches, printing `NO_ACTION`. A failed state read prevents that command
+from being sent. This is Python validation, not a learned SmolVLA output: the
+model still receives its original synthetic state vector. The comparison assumes
+one controller; firmware remains idempotent if state changes between GET and POST.
+
+Omit `--no-video` to retain existing MP4 generation. Omit `--esp32` to run the
+original simulator without network calls. Videos and build output remain ignored.
+No cloud server is needed. A future cloud deployment needs networking and
+security suitable for reaching hardware behind a private LAN.
+
+## Web interface for entering prompts
+
+Run the backend in WSL from the repository root using the existing environment
+and checkpoint:
+
+```bash
+export ESP32_URL=http://192.168.123.15  # replace with the actual ESP32 IP address
+.venv/bin/python my-vla-light-demo/scripts/light_web_server.py --esp32 --validate-state
+```
+
+Open `http://localhost:8000` in your Windows browser. Wait for “Mô hình sẵn sàng”
+(Model ready), enter a prompt, then click “Chạy SmolVLA” (Run SmolVLA). The backend
+loads the model once, calls the existing `infer()` function, and sends ON/OFF
+commands based on the postprocessed action. No keyword matching or retraining is
+involved. The web interface does not generate MP4 files; the existing CLI still
+supports video generation.
+
+The interface displays model status, GPIO state reported by the ESP32, `action[0]`,
+the semantic action, the execution result, and up to eight recent prompts from the
+current session. Suggested prompts only fill the input field. `NO_ACTION` is
+determined by Python state validation, not a learned model output. The GPIO state
+is reported by the ESP32; it is not a physical measurement of light output.
+
+To run the inference interface without sending commands to the ESP32:
+
+```bash
+.venv/bin/python my-vla-light-demo/scripts/light_web_server.py
+```
+
+Use `--port 8001` if port 8000 is already in use. Stop the server with Ctrl+C.
+The server listens only on `127.0.0.1` for access from the laptop's browser and
+requires no additional Python libraries. Open the interface through the server
+URL rather than opening the HTML file directly: the backend is required to run
+SmolVLA. If model loading fails, the interface displays an error; check the
+terminal to diagnose GPU, checkpoint, or environment issues.

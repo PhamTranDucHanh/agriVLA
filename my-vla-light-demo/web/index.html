@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>agriVLA · Light Studio</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><a class="brand" href="/">✳ <span>agriVLA</span></a><span class="tag">LIGHT STUDIO <span class="dot"></span> LOCAL AI</span></header>
+<main>
+<section class="intro"><span class="eyebrow"><p>Điều khiển ánh sáng bằng SmolVLA + LoRA.<br>Nhập yêu cầu, để mô hình dự đoán hành động.</p></section>
+<div class="workspace">
+<section class="panel prompt-panel"><div class="panel-heading"><span class="number">01</span><h2>Yêu cầu của bạn</h2><span id="model-status" class="badge">Đang tải mô hình…</span></div>
+<form id="prompt-form"><label for="prompt">Bạn muốn đèn làm gì?</label><textarea id="prompt" maxlength="1000" placeholder="Ví dụ: Bật đèn giúp tôi" required></textarea><div class="examples"><button type="button" data-prompt="Bật đèn">↗ Bật đèn</button><button type="button" data-prompt="Tắt đèn">↗ Tắt đèn</button><button type="button" data-prompt="Turn on the light">↗ English</button></div><button id="submit" class="primary" disabled>Chạy SmolVLA <span>→</span></button><p class="hint">Các gợi ý chỉ điền prompt. Mọi quyết định ON/OFF đều từ mô hình.</p></form>
+<div id="message" role="status" aria-live="polite">Đang kết nối với backend…</div>
+</section>
+<section class="panel device-panel"><div class="panel-heading"><span class="number">02</span><h2>Thiết bị</h2><button id="refresh" class="text-button" type="button">↻ Đọc trạng thái</button></div><div id="lamp" class="lamp"><svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 12a39 39 0 0 0-25 69c7 6 9 13 9 22h32c0-9 2-16 9-22A39 39 0 0 0 60 12Z"/><path class="base" d="M44 111h32m-32 10h32m-26 10h20"/></svg></div><div id="light-status" class="light-status">Chưa xác định</div><p id="device-detail">Chưa đọc trạng thái ESP32</p><div class="device-footer"><span>ESP32-S3</span><span>Wi-Fi / HTTP</span></div></section>
+</div>
+<section class="panel result-panel"><div class="panel-heading"><span class="number">03</span><h2>Kết quả inference</h2><span id="elapsed" class="badge">Chưa có kết quả</span></div><div class="metrics"><div><span>Action[0]</span><strong id="action-value">—</strong></div><div><span>Dự đoán SmolVLA</span><strong id="semantic">—</strong></div><div><span>Thực thi Python</span><strong id="final-action">—</strong></div></div><details><summary>Xem action vector</summary><pre id="vector">Chạy một prompt để xem kết quả.</pre></details></section>
+<section class="history"><h2>Lịch sử phiên</h2><ul id="history"><li class="empty">Các yêu cầu của bạn sẽ xuất hiện ở đây.</li></ul></section>
+</main><footer><span>SmolVLA + LoRA · Inference trên laptop</span><span>NO_ACTION được quyết định bởi kiểm tra trạng thái Python.</span></footer>
+</body></html>
