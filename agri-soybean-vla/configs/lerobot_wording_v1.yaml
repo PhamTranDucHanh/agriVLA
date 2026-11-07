@@ -1,0 +1,15 @@
+conversion_version: agri_soybean_lerobot_v0
+base_dir: ..
+scene_config: configs/revision_v1.yaml
+dataset_lock_sha256: 92111dfa8086eef77b90e9ac47003c43f1847ea07a899e1df3c6232d2f977ba3
+manifests: data/manifests/wording_v1
+output_dir: data/lerobot/wording_v1
+lerobot_commit: 7e241bd630a3719a56157a497ce5d08f244784f1
+image_size:
+- 256
+- 256
+image_transform: pillow_lanczos_letterbox_black_v1
+fps: 1
+use_videos: false
+smoke_count: 64
+seed: 42

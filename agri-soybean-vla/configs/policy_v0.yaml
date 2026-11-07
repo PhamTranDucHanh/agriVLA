@@ -1,0 +1,18 @@
+config_version: 1
+policy_version: wilt_proxy_policy_v0
+label_source: wilt_proxy_policy_v0
+label_type: synthetic_policy_action
+wilt_to_level: {0: 0, 1: 0, 2: 1, 3: 2, 4: 3}
+action_levels: {0: 'OFF', 1: LOW, 2: MEDIUM, 3: HIGH}
+actionable_wilt_min: 2
+worst_tie_policy: all_max
+zones: [1, 2, 3]
+caps: [1, 2]
+intent_parameters:
+  AUTO: []
+  WORST_ONLY: []
+  ZONE_ONLY: [zone]
+  CAP_LEVEL: [cap]
+  EXCLUDE_ZONE: [zone]
+  STOP_ALL: []
+multiple_intents: reject

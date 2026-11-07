@@ -1,0 +1,12 @@
+version: agri_soybean_revision_v1
+base_dir: ..
+parent_config: configs/dataset_v0.yaml
+parent_manifests: data/manifests/v0
+parent_lock_sha256: c59005a5d4eea36731051f5b82a9341d9be5ae50cca4aafcad1055743ef16563
+language_config: configs/language_wording_v1.yaml
+extension_config: configs/policy_extension_v1.yaml
+schema: schemas/scene_v1.schema.json
+output_dir: data/manifests/wording_v1
+seed: 42
+counts: {train: 3600, val: 720, test: 720}
+force_cases_per_level: {train: 100, val: 10, test: 10}

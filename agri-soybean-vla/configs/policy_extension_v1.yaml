@@ -1,0 +1,41 @@
+policy_version: wilt_proxy_with_operator_override_v1
+intent: WATER_ALL
+parameter: level
+allowed_levels: [1, 2, 3]
+meaning: explicit_operator_override_independent_of_wilt
+target_rule: [level, level, level]
+missing_level: reject_ambiguous_command
+templates:
+  train:
+    - id: water_all_train_01
+      vi: "Tưới cả 3 vườn mức {level} nhé."
+      en: "Water all 3 gardens at level {level}, please."
+    - id: water_all_train_02
+      vi: "Mở tưới cả ba vườn mức {level}."
+      en: "Turn on watering in all three gardens at level {level}."
+    - id: water_all_train_03
+      vi: "Cho cả 3 vườn tưới mức {level} đi."
+      en: "Set all 3 gardens to watering level {level}."
+    - id: water_all_train_04
+      vi: "Tưới cả ba vườn ở mức {level}, không cần xét độ héo."
+      en: "Water all three gardens at level {level}, regardless of wilt."
+    - id: water_all_train_05
+      vi: "Đặt tưới mức {level} cho cả 3 vườn giúp mình."
+      en: "Please set watering to level {level} for all 3 gardens."
+    - id: water_all_train_06
+      vi: "Cả ba vườn đều tưới mức {level} nhé."
+      en: "Water every one of the three gardens at level {level}."
+  unseen-val:
+    - id: water_all_val_01
+      vi: "Giúp mình bật tưới mức {level} ở cả ba vườn."
+      en: "Please switch watering on at level {level} in all three gardens."
+    - id: water_all_val_02
+      vi: "Bật cả 3 vườn lên mức tưới {level} nha."
+      en: "Put all 3 gardens on watering level {level}."
+  unseen-test:
+    - id: water_all_test_01
+      vi: "Mình muốn cả ba vườn cùng được tưới mức {level}."
+      en: "I want all three gardens watered at level {level}."
+    - id: water_all_test_02
+      vi: "Tưới mức {level} đồng loạt cả 3 vườn đi."
+      en: "Water all 3 gardens together at level {level}."

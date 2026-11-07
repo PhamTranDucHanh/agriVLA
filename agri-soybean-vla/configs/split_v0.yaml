@@ -1,0 +1,29 @@
+config_version: 1
+split_version: soybean_source_split_v0
+base_dir: ..
+seed: 42
+assignment_policy: explicit_source_groups
+source:
+  manifest: reports/source/v0/sources.jsonl
+  manifest_sha256: 421596b6e773ccd3c5d191c7a291521a88158cf3679458f63ee2f7ecdc65f110
+  report: reports/source/v0/source_report.json
+  report_sha256: 8b660622a92b9d5c9c04f9df27e04812831e8e39a45db6c027299928404f8d98
+output_dir: data/manifests/source_splits/v0
+assignments:
+  train: ['3-106', '5-180', '5-27', '7-130', '10-87', '14-198', '15-29', '16-60']
+  val: ['4-228']
+  test: ['11-46']
+expected_counts: {train: 1258, val: 189, test: 341}
+isolation: {camera: true, plot: true}
+near_duplicates:
+  algorithm: dhash64_rgb_mae_gray_pearson_v1
+  hamming_max: 8
+  thumbnail_size: [64, 48]
+  confirmed_rgb_mae_max: 0.035
+  confirmed_gray_correlation_min: 0.985
+  min_gray_std: 0.02
+  review_rgb_mae_max: 0.10
+  review_gray_correlation_min: 0.94
+  diagnostic_pair_count: 12
+  manual_reviews: null
+  manual_reviews_sha256: null

@@ -1,0 +1,391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agrivla:scene:v0",
+  "title": "AgriVLA synthetic three-zone bilingual scene record",
+  "description": "Structural contract with optional step-4 provenance/relation fields for backward-compatible placeholder examples. Generated records must include them and pass full dataset QA.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sample_id",
+    "scene_id",
+    "scene_type",
+    "split",
+    "images",
+    "source_image_ids",
+    "source_groups",
+    "instruction",
+    "language",
+    "template_id",
+    "template_family_id",
+    "translation_pair_id",
+    "wording_partition",
+    "intent",
+    "intent_params",
+    "teacher_annotations",
+    "target_action",
+    "label_source",
+    "label_type",
+    "policy_version",
+    "seed"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "agri-soybean-scene-v0"
+    },
+    "sample_id": {
+      "$ref": "#/$defs/id"
+    },
+    "scene_id": {
+      "$ref": "#/$defs/id"
+    },
+    "scene_type": {
+      "const": "synthetic_three_zone"
+    },
+    "split": {
+      "enum": [
+        "train",
+        "val",
+        "test"
+      ]
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zone1",
+        "zone2",
+        "zone3"
+      ],
+      "properties": {
+        "zone1": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "zone2": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "zone3": {
+          "$ref": "#/$defs/relative_path"
+        }
+      }
+    },
+    "source_image_ids": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "source_groups": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "language": {
+      "enum": [
+        "vi",
+        "en"
+      ]
+    },
+    "template_id": {
+      "$ref": "#/$defs/id"
+    },
+    "template_family_id": {
+      "$ref": "#/$defs/id"
+    },
+    "translation_pair_id": {
+      "$ref": "#/$defs/id"
+    },
+    "wording_partition": {
+      "enum": [
+        "seen",
+        "unseen"
+      ]
+    },
+    "intent": {
+      "enum": [
+        "AUTO",
+        "WORST_ONLY",
+        "ZONE_ONLY",
+        "CAP_LEVEL",
+        "EXCLUDE_ZONE",
+        "STOP_ALL"
+      ]
+    },
+    "intent_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "zone": {
+          "enum": [
+            1,
+            2,
+            3
+          ]
+        },
+        "cap": {
+          "enum": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    "teacher_annotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wilt_scores"
+      ],
+      "properties": {
+        "wilt_scores": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          }
+        }
+      }
+    },
+    "target_action": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3
+      }
+    },
+    "label_source": {
+      "const": "wilt_proxy_policy_v0"
+    },
+    "label_type": {
+      "const": "synthetic_policy_action"
+    },
+    "policy_version": {
+      "const": "wilt_proxy_policy_v0"
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "case_id": {
+      "$ref": "#/$defs/id"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compose_config_sha256",
+        "split_lock_sha256",
+        "policy_lock_sha256",
+        "source_manifest_sha256",
+        "generator_version",
+        "source_sha256",
+        "source_pixel_sha256",
+        "source_duplicate_components"
+      ],
+      "properties": {
+        "compose_config_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "split_lock_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "policy_lock_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "generator_version": {
+          "const": "soybean_scene_generator_v0"
+        },
+        "source_sha256": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "source_pixel_sha256": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "source_duplicate_components": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "generation_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "permutation_of",
+        "permutation"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "contrastive_base",
+            "permutation",
+            "all_off",
+            "all_high",
+            "tie",
+            "below_threshold",
+            "balanced"
+          ]
+        },
+        "permutation_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permutation": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "enum": [
+              "ZONE_ONLY",
+              "EXCLUDE_ZONE"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "intent_params": {
+            "required": [
+              "zone"
+            ],
+            "maxProperties": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "const": "CAP_LEVEL"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "intent_params": {
+            "required": [
+              "cap"
+            ],
+            "maxProperties": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": {
+            "enum": [
+              "AUTO",
+              "WORST_ONLY",
+              "STOP_ALL"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "intent_params": {
+            "maxProperties": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "split": {
+            "const": "train"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "wording_partition": {
+            "const": "seen"
+          }
+        }
+      }
+    }
+  ]
+}

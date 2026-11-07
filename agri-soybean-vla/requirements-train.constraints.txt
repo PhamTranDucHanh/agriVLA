@@ -1,0 +1,10 @@
+# VERIFIED core compatibility constraints on 2026-11-06, Python 3.12 / Linux x86_64.
+# Full resolved dependency versions are in requirements-train.lock.txt.
+# CUDA wheels are installed explicitly from the cu126 index by setup.sh.
+torch==2.7.1
+torchvision==0.22.1
+transformers==5.5.4
+peft==0.21.2
+# Official compatibility matrix: TorchCodec 0.3–0.5 targets torch 2.7.
+# Unconstrained latest TorchCodec would have an incompatible native ABI.
+torchcodec==0.5.0

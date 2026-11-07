@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgriVLA · Duyệt dataset</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/browser.css">
+  <script src="/assets/browser.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><div class="wrap brand"><a href="/" class="logo" aria-label="AgriVLA trang đầu">a<span>gri</span> / <b>VLA</b></a><span class="local-dot">LOCALHOST · CHỈ ĐỌC</span></div></header>
+  <main class="wrap">
+    <section class="intro"><div><div class="eyebrow">SOYBEAN · DATASET EXPLORER</div><h1>Nhìn rõ từng mẫu.</h1><p>Ba vùng ảnh, một câu lệnh, một hành động. Duyệt toàn bộ dữ liệu và mở ảnh gốc ngay trên máy.</p></div><div class="verified" id="verified">Đang đọc dataset…</div></section>
+    <section class="metrics" aria-label="Tổng quan dataset" id="metrics"><div class="metric">Đang tải dữ liệu đã kiểm chứng…</div></section>
+    <nav class="tabs" aria-label="Chế độ xem"><button data-view="samples" class="active">Mẫu tổng hợp <span id="samplesCount"></span></button><button data-view="sources">Ảnh nguồn <span id="sourcesCount"></span></button><button data-view="files">Thư mục & tệp gốc</button><button data-view="guide" class="guide-tab">Cách đọc mẫu</button></nav>
+    <section id="browserPanel">
+      <form id="filters" class="filters" role="search">
+        <div class="search-row"><label class="search-label"><span class="sr-only">Tìm kiếm dataset</span><input id="q" type="search" placeholder="Tìm câu lệnh, sample ID, scene ID hoặc tên ảnh…" autocomplete="off"></label><button type="button" id="reset" class="secondary">Xóa bộ lọc</button></div>
+        <div class="filter-row">
+          <label>Split<select id="split"><option value="">Tất cả split</option><option value="train">Train</option><option value="val">Validation</option><option value="test">Test</option></select></label>
+          <label data-samples-only>Ngôn ngữ<select id="language"><option value="">Việt & Anh</option><option value="vi">Tiếng Việt</option><option value="en">English</option></select></label>
+          <label data-samples-only>Cách diễn đạt<select id="wording"><option value="">Seen & unseen</option><option value="seen">Seen · đã dùng train</option><option value="unseen">Unseen · chưa dùng train</option></select></label>
+          <label data-samples-only>Ý định<select id="intent"><option value="">Mọi ý định</option></select></label>
+          <label data-sources-only hidden>Trạng thái nguồn<select id="eligibility"><option value="">Tất cả ảnh gốc</option><option value="eligible">Đủ điều kiện v0</option><option value="quarantine">Quarantine · nhãn 5</option><option value="unused">Eligible chưa được chọn</option></select></label>
+          <label>Nhãn héo<select id="wilt"><option value="">Mọi mức héo</option><option value="0">Wilt 0</option><option value="1">Wilt 1</option><option value="2">Wilt 2</option><option value="3">Wilt 3</option><option value="4">Wilt 4</option><option value="5" id="wilt5" hidden>Nhãn 5 · ngoài v0</option></select></label>
+        </div>
+        <details class="advanced"><summary>Lọc thêm theo nhóm nguồn / action / loại ca</summary><div class="filter-row"><label>Camera–plot<select id="group"><option value="">Mọi nhóm nguồn</option></select></label><label data-samples-only>Action<select id="action"><option value="">Mọi action</option><option value="zero">Toàn OFF · [0,0,0]</option><option value="on">Có ít nhất một vùng tưới</option><option value="high">Toàn HIGH · [3,3,3]</option></select></label><label data-samples-only>Loại ca<select id="kind"><option value="">Mọi loại ca</option></select></label></div></details>
+        <div id="relation" class="relation" hidden></div>
+      </form>
+      <div class="results-toolbar"><div id="resultCount" aria-live="polite">Đang tải…</div><div class="view-tools"><form id="jumpForm" class="jump"><label for="jump">Tới mẫu số</label><input type="number" id="jump" min="1" value="1"><button class="secondary">Mở</button></form><label>Số mẫu/trang<select id="page_size"><option>12</option><option>24</option><option>48</option></select></label></div></div>
+      <div id="error" class="error" role="alert" hidden></div>
+      <div id="cards" class="cards" aria-live="polite"></div>
+      <div id="empty" class="empty" hidden><h2>Không có mẫu phù hợp</h2><p>Thử bỏ bớt bộ lọc hoặc chọn “Xóa bộ lọc”. Ảnh nhãn 5 chỉ có ở tab Ảnh nguồn.</p></div>
+      <nav class="pagination" aria-label="Phân trang"><button id="first" class="secondary">« Đầu</button><button id="prev" class="secondary">← Trước</button><form id="pageForm"><label>Trang <input id="page" type="number" min="1" value="1"></label><span id="pageTotal">/ 1</span><button class="secondary">Đi</button></form><button id="next" class="secondary">Sau →</button><button id="last" class="secondary">Cuối »</button></nav>
+    </section>
+    <section id="filesPanel" hidden><div class="section-title"><h2>Đúng file. Đúng thư mục local.</h2><p>Các đường dẫn dưới đây là thư mục thật trên máy đang chạy server. Mở thư mục qua HTTP hoặc copy đường dẫn để mở bằng Files.</p></div><div id="folderCards" class="folder-grid"></div></section>
+    <section id="guidePanel" class="guide" hidden><h2>Đọc một mẫu trong 30 giây</h2><div class="guide-grid"><article><span class="step">01</span><h3>Ba ảnh = ba zone tổng hợp</h3><p>Đọc ảnh từ trái sang phải: vùng 1, vùng 2, vùng 3. Chúng có thể khác plot/thời điểm, không phải ba camera chụp đồng thời.</p></article><article><span class="step">02</span><h3>Một record, một ngôn ngữ</h3><p>Câu Việt hoặc Anh là instruction của model. Nhấn “Bản dịch & wording” để xem các câu cùng case và cùng target.</p></article><article><span class="step">03</span><h3>Target là nhãn proxy</h3><p>Action 0 = OFF, 1 = LOW, 2 = MEDIUM, 3 = HIGH. Với lệnh theo ngưỡng: wilt 0–1 giữ OFF, wilt 2/3/4 ánh xạ 1/2/3. WATER_ALL ở wording_v1 ép cả ba vùng theo mức chỉ định, không xét ngưỡng; STOP_ALL luôn OFF. Các mức chưa phải lượng nước hiệu chuẩn.</p></article><article><span class="step">04</span><h3>Đối chiếu với ảnh gốc</h3><p>Nhấp ảnh để mở bản gốc. “Thư mục gốc” dẫn tới danh sách file thật. Teacher wilt, intent và JSON chỉ phục vụ review, không được chèn vào model input.</p></article></div><div class="note"><b>Scene ≠ case ≠ record.</b> Scene là bộ ba ảnh có thứ tự; case là scene + intent/params; record là một câu của một ngôn ngữ. Train có 2 record/case; val/test có 4 (Việt–Anh × seen/unseen). Bản dịch và tổ hợp không làm tăng số ảnh độc lập.</div><div class="note">Val có bốn ảnh gốc wilt 4. Test chỉ một plot. Trang này giúp đọc/kiểm dữ liệu; chưa phải kết quả mô hình đã train.</div></section>
+    <footer>AgriVLA-Soybean · Ảnh nguyên gốc, metadata minh bạch · Dữ liệu chỉ đọc trên localhost</footer>
+  </main>
+  <dialog id="detail"><div class="dialog-head"><div><div class="eyebrow">CHI TIẾT MẪU</div><h2 id="detailTitle">Mẫu</h2></div><button id="closeDetail" class="secondary" aria-label="Đóng chi tiết">Đóng ✕</button></div><div id="detailBody"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript>Trang cần bật JavaScript để lọc và phân trang. Bạn vẫn có thể mở /files/manifests/ hoặc /files/images/ để xem tệp gốc.</noscript>
+</body>
+</html>

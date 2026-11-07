@@ -1,0 +1,28 @@
+{
+  "schema_version": "agri-soybean-scene-v0",
+  "model_inputs": {
+    "observation.images.camera1": {"zone": "zone1", "dtype": "RGB", "shape": [3, 256, 256]},
+    "observation.images.camera2": {"zone": "zone2", "dtype": "RGB", "shape": [3, 256, 256]},
+    "observation.images.camera3": {"zone": "zone3", "dtype": "RGB", "shape": [3, 256, 256]},
+    "observation.state": {
+      "dtype": "float32", "shape": [3], "value": [0.0, 0.0, 0.0],
+      "meaning": "assumed_all_valves_initially_closed", "normalization": "IDENTITY"
+    },
+    "task": {"source": "instruction", "languages": ["vi", "en"], "one_language_per_record": true}
+  },
+  "training_target": {
+    "action": {"source": "target_action", "dtype": "float32", "shape": [3], "levels": [0, 1, 2, 3]},
+    "level_names": {"0": "OFF", "1": "LOW", "2": "MEDIUM", "3": "HIGH"},
+    "label_source": "wilt_proxy_policy_v0",
+    "label_type": "synthetic_policy_action",
+    "normalization": "MEAN_STD_using_train_statistics_only"
+  },
+  "metadata_only": [
+    "teacher_annotations", "intent", "intent_params", "language", "wording_partition",
+    "template_id", "template_family_id", "translation_pair_id", "split", "sample_id",
+    "scene_id", "source_image_ids", "source_groups", "label_source", "label_type", "policy_version", "seed",
+    "duplicate_component_id", "source_split_version", "case_id", "provenance", "generation_metadata"
+  ],
+  "physical_irrigation_validated": false,
+  "runtime_lerobot_compatibility_verified": false
+}

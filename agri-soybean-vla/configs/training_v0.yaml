@@ -1,0 +1,41 @@
+version: agri_soybean_training_v0
+base_dir: ..
+conversion_config: configs/lerobot_wording_v1.yaml
+dataset_root: data/lerobot/wording_v1/full
+bundle: models/prepared/wording_v1
+base:
+  repo_id: lerobot/smolvla_base
+  revision: 5e8d12a6e2975b0e5e5fce7c8caf47c371d257b6
+backbone:
+  repo_id: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+  revision: 7b375e1b73b11138ff12fe22c8f2822d8fe03467
+seed: 42
+policy:
+  chunk_size: 1
+  n_action_steps: 1
+  resize_imgs_with_padding:
+  - 256
+  - 256
+  tokenizer_max_length: 96
+  freeze_vision_encoder: true
+  train_expert_only: true
+  use_amp: true
+  compile_model: false
+  optimizer_lr: 0.0003
+  scheduler_warmup_steps: 100
+  scheduler_decay_steps: 6000
+  scheduler_decay_lr: 3.0e-05
+peft:
+  method_type: LORA
+  r: 8
+  lora_alpha: 8
+  full_training_modules: []
+training:
+  batch_size: 1
+  num_workers: 0
+  steps: 6000
+  save_freq: 500
+  log_freq: 10
+  eval_steps: 0
+  env_eval_freq: 0
+  dataset_eval_split: 0.0

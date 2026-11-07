@@ -1,0 +1,212 @@
+config_version: 1
+registry_version: bilingual_templates_v0
+policy_version: wilt_proxy_policy_v0
+seed: 42
+languages: [vi, en]
+# Families are held out together in both languages. Only zone/cap are slots.
+families:
+  AUTO:
+    train:
+      - id: auto_train_01
+        vi: "Tưới các vùng đạt ngưỡng héo theo mức quy định."
+        en: "Water zones that meet the wilt threshold at their prescribed levels."
+      - id: auto_train_02
+        vi: "Hãy cấp nước theo mức quy định cho các vùng đủ ngưỡng héo."
+        en: "Apply the prescribed watering levels to zones reaching the wilt threshold."
+      - id: auto_train_03
+        vi: "Vùng nào đạt ngưỡng héo thì tưới theo mức tương ứng; vùng còn lại giữ tắt."
+        en: "Water each threshold-eligible wilted zone at its prescribed level; leave the others off."
+      - id: auto_train_04
+        vi: "Tưới theo mức héo quy định cho mọi vùng đạt ngưỡng."
+        en: "Use the prescribed wilt-based watering level for every zone meeting the threshold."
+      - id: auto_train_05
+        vi: "Cho các vùng đủ ngưỡng héo nhận mức tưới quy định."
+        en: "Give each zone reaching the wilt threshold its prescribed watering level."
+      - id: auto_train_06
+        vi: "Thực hiện tưới theo quy định ở những vùng đã đạt ngưỡng héo."
+        en: "Carry out the prescribed watering in zones whose wilt meets the threshold."
+    unseen-val:
+      - id: auto_val_01
+        vi: "Xét cả ba vùng: đạt ngưỡng héo thì cấp nước theo mức quy định, chưa đạt thì tắt."
+        en: "Check all three zones: water those meeting the wilt threshold at their prescribed levels and leave the rest off."
+      - id: auto_val_02
+        vi: "Áp dụng mức tưới tương ứng cho từng vùng đủ ngưỡng héo."
+        en: "For each zone eligible by its wilt threshold, apply the corresponding prescribed watering level."
+    unseen-test:
+      - id: auto_test_01
+        vi: "Đánh giá mức héo từng vùng và tưới theo quy định nếu đã qua ngưỡng."
+        en: "Assess each zone's wilt and water it at the prescribed level once the threshold is met."
+      - id: auto_test_02
+        vi: "Phân bổ mức tưới quy định cho các vùng đạt ngưỡng héo; không cấp nước cho vùng còn lại."
+        en: "Assign prescribed watering levels to zones meeting the wilt threshold, with no water for the remaining zones."
+  WORST_ONLY:
+    train:
+      - id: worst_train_01
+        vi: "Chỉ tưới vùng héo nhất đạt ngưỡng; nếu hòa điểm, tưới tất cả vùng đồng hạng."
+        en: "Water only threshold-eligible zones with the highest wilt; water all tied zones."
+      - id: worst_train_02
+        vi: "Trong các vùng đủ ngưỡng, chỉ tưới mức héo cao nhất; tưới tất cả nếu bằng nhau."
+        en: "Among zones reaching the wilt threshold, water only the most wilted; include all zones tied for that maximum."
+      - id: worst_train_03
+        vi: "Tưới các vùng héo nhất đã đạt ngưỡng; hòa điểm thì tưới toàn bộ vùng đồng hạng."
+        en: "Water the eligible zones at the highest wilt score, including every tied zone."
+      - id: worst_train_04
+        vi: "Chọn vùng héo nhất đủ ngưỡng để tưới; nếu đồng hạng thì tưới tất cả."
+        en: "Select the most wilted threshold-eligible zones for watering; if tied, water all of them."
+      - id: worst_train_05
+        vi: "Chỉ cấp nước cho mức héo lớn nhất đã đạt ngưỡng, gồm tất cả vùng hòa điểm."
+        en: "Apply water only to zones reaching the highest eligible wilt level, covering all ties."
+      - id: worst_train_06
+        vi: "Giữ tưới ở các vùng héo nhất qua ngưỡng; tưới tất cả vùng nếu cùng đứng đầu."
+        en: "Limit watering to the most wilted eligible zones; water every zone tied for first."
+    unseen-val:
+      - id: worst_val_01
+        vi: "Vùng nào héo tối đa và đạt ngưỡng mới được tưới; nếu bằng nhau thì tưới tất cả."
+        en: "Water only zones at the maximum wilt that meets the threshold; include all zones with equal maximum scores."
+      - id: worst_val_02
+        vi: "Chỉ tưới nhóm héo nặng nhất đủ ngưỡng; không bỏ sót bất kỳ vùng nào trong tất cả vùng đồng hạng."
+        en: "Water only the most wilted eligible group, including every zone with a tied maximum."
+    unseen-test:
+      - id: worst_test_01
+        vi: "Tìm mức héo cao nhất đã đạt ngưỡng và tưới tất cả vùng cùng mức đó nếu hòa điểm."
+        en: "Find the highest wilt level meeting the threshold and water all zones tied at that level."
+      - id: worst_test_02
+        vi: "Ngoài các vùng héo nhất đạt ngưỡng thì giữ tắt; nếu đồng hạng, tưới toàn bộ nhóm đó."
+        en: "Keep all zones off except the most wilted eligible ones; water every member of a tie."
+  ZONE_ONLY:
+    train:
+      - id: zone_train_01
+        vi: "Chỉ tưới vùng {zone} theo mức quy định nếu đạt ngưỡng héo."
+        en: "Water only zone {zone} at its prescribed level if it meets the wilt threshold."
+      - id: zone_train_02
+        vi: "Chỉ cấp nước cho vùng {zone} khi đủ ngưỡng héo; các vùng khác tắt."
+        en: "Apply water only to zone {zone} when its wilt reaches the threshold; keep the other zones off."
+      - id: zone_train_03
+        vi: "Giới hạn tưới chỉ ở vùng {zone}, theo mức quy định và điều kiện đạt ngưỡng héo."
+        en: "Limit watering to zone {zone} only, using its prescribed level once the wilt threshold is met."
+      - id: zone_train_04
+        vi: "Chỉ xét vùng {zone}: đạt ngưỡng héo thì tưới theo mức tương ứng."
+        en: "Consider only zone {zone}: if its wilt reaches the threshold, use the corresponding prescribed watering level."
+      - id: zone_train_05
+        vi: "Chỉ cho vùng {zone} nhận mức tưới quy định khi biểu hiện héo đủ ngưỡng."
+        en: "Give only zone {zone} its prescribed watering level when its wilt is threshold-eligible."
+      - id: zone_train_06
+        vi: "Các vùng khác giữ tắt; chỉ tưới vùng {zone} nếu đã đạt ngưỡng héo."
+        en: "Keep the other zones off; water only zone {zone} if it has reached the wilt threshold."
+    unseen-val:
+      - id: zone_val_01
+        vi: "Chỉ đánh giá tưới cho vùng {zone}; cấp mức quy định nếu đủ ngưỡng héo."
+        en: "Evaluate only zone {zone} for watering and apply its prescribed level if the wilt threshold is met."
+      - id: zone_val_02
+        vi: "Dành tưới chỉ cho vùng {zone} đã đạt ngưỡng héo, không mở tưới vùng khác."
+        en: "Reserve watering for zone {zone} only when it meets the wilt threshold, with no watering elsewhere."
+    unseen-test:
+      - id: zone_test_01
+        vi: "Chỉ vùng {zone} được tưới theo mức héo quy định khi qua ngưỡng; vùng còn lại tắt."
+        en: "Only zone {zone} may receive its prescribed wilt-based watering after meeting the threshold; leave the rest off."
+      - id: zone_test_02
+        vi: "Chỉ áp dụng mức tưới tương ứng ở vùng {zone} nếu đủ ngưỡng héo."
+        en: "Apply the corresponding prescribed watering level only in zone {zone}, provided its wilt meets the threshold."
+  CAP_LEVEL:
+    train:
+      - id: cap_train_01
+        vi: "Tưới các vùng đủ ngưỡng héo, nhưng không vượt mức {cap}."
+        en: "Water zones meeting the wilt threshold, but do not exceed level {cap}."
+      - id: cap_train_02
+        vi: "Giới hạn mức tưới tối đa là {cap} cho những vùng đạt ngưỡng héo."
+        en: "Limit watering to at most level {cap} for zones reaching the wilt threshold."
+      - id: cap_train_03
+        vi: "Áp dụng mức tưới quy định với trần {cap} ở các vùng đủ ngưỡng héo."
+        en: "Apply prescribed watering with a level {cap} ceiling in threshold-eligible wilted zones."
+      - id: cap_train_04
+        vi: "Vùng đạt ngưỡng héo thì tưới theo quy định, tối đa mức {cap}."
+        en: "Water each zone reaching the wilt threshold at its prescribed level, capped at {cap}."
+      - id: cap_train_05
+        vi: "Không tưới quá mức {cap}; chỉ cấp nước ở các vùng đủ ngưỡng héo."
+        en: "Do not water above level {cap}; apply water only where the wilt threshold is met."
+      - id: cap_train_06
+        vi: "Đặt trần tưới mức {cap} cho mọi vùng đã đạt ngưỡng héo."
+        en: "Set a level {cap} watering cap for every zone whose wilt meets the threshold."
+    unseen-val:
+      - id: cap_val_01
+        vi: "Tại các vùng đạt ngưỡng héo, lấy mức tưới quy định nhưng chặn ở mức {cap}."
+        en: "For zones meeting the wilt threshold, use the prescribed watering level but clamp it to {cap}."
+      - id: cap_val_02
+        vi: "Chỉ tưới những vùng đủ ngưỡng héo với mức không lớn hơn {cap}."
+        en: "Water only threshold-eligible wilted zones at a level no greater than {cap}."
+    unseen-test:
+      - id: cap_test_01
+        vi: "Hạ mức tưới xuống {cap} nếu mức quy định cao hơn; chỉ áp dụng cho vùng đạt ngưỡng héo."
+        en: "Reduce prescribed watering to {cap} whenever it is higher, applying water only to zones meeting the wilt threshold."
+      - id: cap_test_02
+        vi: "Các vùng đạt ngưỡng héo nhận mức tưới quy định hoặc thấp hơn để không vượt trần {cap}."
+        en: "Zones reaching the wilt threshold receive their prescribed watering or less so that the level {cap} cap is respected."
+  EXCLUDE_ZONE:
+    train:
+      - id: exclude_train_01
+        vi: "Tưới các vùng đủ ngưỡng héo theo mức quy định, trừ vùng {zone}."
+        en: "Water zones meeting the wilt threshold at their prescribed levels, excluding zone {zone}."
+      - id: exclude_train_02
+        vi: "Giữ vùng {zone} tắt; tưới các vùng khác nếu đạt ngưỡng héo."
+        en: "Keep zone {zone} off; water the other zones if they meet the wilt threshold."
+      - id: exclude_train_03
+        vi: "Không tưới vùng {zone}; các vùng còn lại đủ ngưỡng héo thì tưới theo quy định."
+        en: "Do not water zone {zone}; water the remaining threshold-eligible wilted zones as prescribed."
+      - id: exclude_train_04
+        vi: "Loại vùng {zone} khỏi tưới và cấp mức quy định cho các vùng khác đạt ngưỡng héo."
+        en: "Exclude zone {zone} from watering and apply prescribed levels to other zones reaching the wilt threshold."
+      - id: exclude_train_05
+        vi: "Ngoại trừ vùng {zone}, hãy tưới theo quy định mọi vùng đủ ngưỡng héo."
+        en: "Except for zone {zone}, water every zone whose wilt meets the threshold at its prescribed level."
+      - id: exclude_train_06
+        vi: "Vùng {zone} không nhận nước; các vùng khác đạt ngưỡng héo được tưới theo mức tương ứng."
+        en: "Zone {zone} receives no water; other zones meeting the wilt threshold receive their corresponding prescribed levels."
+    unseen-val:
+      - id: exclude_val_01
+        vi: "Bỏ qua vùng {zone}, chỉ tưới theo mức quy định ở những vùng khác đủ ngưỡng héo."
+        en: "Skip zone {zone} and use prescribed watering only in the other threshold-eligible wilted zones."
+      - id: exclude_val_02
+        vi: "Đóng tưới vùng {zone}; mọi vùng còn lại đạt ngưỡng héo thì áp dụng mức quy định."
+        en: "Shut watering off in zone {zone}; apply prescribed levels in all remaining zones meeting the wilt threshold."
+    unseen-test:
+      - id: exclude_test_01
+        vi: "Dù biểu hiện héo thế nào cũng giữ vùng {zone} tắt; tưới các vùng khác khi đủ ngưỡng."
+        en: "Keep zone {zone} off regardless of its wilt; water other zones when their wilt reaches the threshold."
+      - id: exclude_test_02
+        vi: "Chặn tưới vùng {zone} và làm theo mức héo quy định cho các vùng khác đã đạt ngưỡng."
+        en: "Block watering in zone {zone} and follow prescribed wilt-based levels for the other threshold-eligible zones."
+  STOP_ALL:
+    train:
+      - id: stop_train_01
+        vi: "Dừng tưới toàn bộ."
+        en: "Stop watering all zones."
+      - id: stop_train_02
+        vi: "Ngừng cấp nước cho cả ba vùng."
+        en: "Stop supplying water to all three zones."
+      - id: stop_train_03
+        vi: "Tắt tưới ở tất cả các vùng."
+        en: "Turn watering off in every zone."
+      - id: stop_train_04
+        vi: "Đóng toàn bộ van tưới."
+        en: "Close all irrigation valves."
+      - id: stop_train_05
+        vi: "Không tưới bất kỳ vùng nào."
+        en: "Do not water any zone."
+      - id: stop_train_06
+        vi: "Cho cả ba vùng về trạng thái không tưới."
+        en: "Set all three zones to no watering."
+    unseen-val:
+      - id: stop_val_01
+        vi: "Hãy chấm dứt tưới ở mọi vùng."
+        en: "End watering throughout all zones."
+      - id: stop_val_02
+        vi: "Giữ tất cả van tưới ở trạng thái đóng."
+        en: "Keep every irrigation valve closed."
+    unseen-test:
+      - id: stop_test_01
+        vi: "Không cấp thêm nước cho bất cứ vùng nào."
+        en: "Supply no more water to any zone."
+      - id: stop_test_02
+        vi: "Dừng toàn bộ việc tưới và đóng cả ba van."
+        en: "Halt all watering and close all three valves."
+

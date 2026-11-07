@@ -1,0 +1,47 @@
+config_version: 1
+base_dir: ..  # Relative to this YAML, so paths do not depend on shell cwd.
+source_id: zenodo_8256382
+source_url: https://zenodo.org/records/8256382
+seed: 42
+paths:
+  raw_dir: data/raw/zenodo_8256382
+  images_dir: data/raw/zenodo_8256382/images
+  source_output_dir: reports/source/v0
+files:
+  csv:
+    name: dataAnns_goodFiles.csv
+    url: https://zenodo.org/records/8256382/files/dataAnns_goodFiles.csv?download=1
+    md5: 538bbf95130b3bc637acfcbed503de64
+    approximate_bytes: 83700
+  zip:
+    name: full_data.zip
+    url: https://zenodo.org/records/8256382/files/full_data.zip?download=1
+    md5: 73e83e3abed5680d82d03d46984ad2a6
+    approximate_bytes: 655700000
+expected:
+  rows: 1892
+  unique_full_ids: 1892
+  groups: 10
+  labels: {0: 524, 1: 473, 2: 369, 3: 216, 4: 206, 5: 104}
+  out_of_domain_group: '11-46'
+inspection:
+  max_member_bytes: 20971520
+  max_total_uncompressed_bytes: 4294967296
+  contact_sheet_per_label: 12
+  contact_sheet_columns: 4
+  thumbnail_size: [240, 180]
+generation:
+  generator_version: soybean_scene_generator_v0
+  source_split_config: configs/split_v0.yaml
+  source_split_dir: data/manifests/source_splits/v0
+  split_lock_sha256: 3be04c67ed375c76e4a97d425416e3a890bd1c060ce1167b9bbd5f16d6fcaa8d
+  policy_config: configs/policy_v0.yaml
+  language_config: configs/language_v0.yaml
+  policy_audit_dir: reports/policy/v0
+  policy_lock_sha256: c6c0d5d2be39fb61581a10aa39757e03b840518ddf6c210a372c5fb2853b4d11
+  schema: schemas/scene_v0.schema.json
+  output_dir: data/manifests/v0
+  record_counts: {train: 3000, val: 600, test: 600}
+  train_intent_percent: {AUTO: 30, WORST_ONLY: 20, ZONE_ONLY: 15, CAP_LEVEL: 15, EXCLUDE_ZONE: 10, STOP_ALL: 10}
+  eval_intent_cases: {AUTO: 30, WORST_ONLY: 30, ZONE_ONLY: 30, CAP_LEVEL: 20, EXCLUDE_ZONE: 20, STOP_ALL: 20}
+  within_scene_near_policy: reject_near_and_uncertain

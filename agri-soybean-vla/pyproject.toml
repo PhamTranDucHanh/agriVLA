@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agri-vla-soybean"
+version = "0.1.0"
+description = "Reproducible bilingual three-zone soybean VLA dataset tools"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = []
+
+[project.optional-dependencies]
+data = [
+    "Pillow==12.0.0",
+    "PyYAML==6.0.3",
+    "jsonschema==4.25.1",
+]
+dev = [
+    "pytest==8.4.2",
+    # Compatible with the pinned LeRobot packaging<26 constraint.
+    "packaging==25.0",
+    "setuptools==80.9.0",
+    "wheel==0.45.1",
+]
+
+[project.scripts]
+agri-vla = "agri_vla.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agri_vla = ["model_contract.json", "web/*.html", "web/*.css", "web/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
