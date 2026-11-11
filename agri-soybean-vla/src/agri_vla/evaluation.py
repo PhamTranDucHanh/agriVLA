@@ -105,7 +105,7 @@ def load_model(c, bundle, *, checkpoint=None, device="cpu"):
     return policy, pre, post, params
 
 
-def data_loader(c, cfg, split, *, count=None):
+def data_loader(c, cfg, split, *, count=None, indices=None):
     from torch.utils.data import DataLoader, Subset
     from lerobot.datasets import LeRobotDataset
     from lerobot.datasets.factory import resolve_delta_timestamps
@@ -115,8 +115,11 @@ def data_loader(c, cfg, split, *, count=None):
     dataset = LeRobotDataset(info["repo_id"], root=root, video_backend="pyav")
     dataset = LeRobotDataset(info["repo_id"], root=root, video_backend="pyav", delta_timestamps=resolve_delta_timestamps(cfg, dataset.meta))
     mapping = read_jsonl(root / "sample_metadata.jsonl")
-    indices = range(len(dataset)) if count is None else range(min(count, len(dataset)))
-    return DataLoader(Subset(dataset, list(indices)), batch_size=1, shuffle=False, num_workers=0), mapping
+    require(indices is None or count is None, "Use count or explicit indices, not both")
+    selected = list(range(len(dataset)) if count is None else range(min(count, len(dataset)))) if indices is None else list(indices)
+    require(selected and len(selected) == len(set(selected)) and all(type(i) is int and 0 <= i < len(dataset) for i in selected),
+            "Invalid evaluation indices")
+    return DataLoader(Subset(dataset, selected), batch_size=1, shuffle=False, num_workers=0), mapping
 
 
 def model_batch(batch):
@@ -182,12 +185,11 @@ def check_model_inputs(c, bundle, *, output):
     return report
 
 
-def evaluate(c, bundle, *, split, output, checkpoint=None, count=None, device="cpu"):
-    require(split in ("val", "test"), "Evaluator only accepts held-out val/test roots")
+def _evaluate(c, bundle, *, split, output, checkpoint, count, device, indices=None, diagnostic=None):
     require(count is None or type(count) is int and count > 0, "Invalid limit")
     new_output(output)
     policy, pre, post, _ = load_model(c, bundle, checkpoint=checkpoint, device=device)
-    loader, mapping = data_loader(c, policy.config, split, count=count)
+    loader, mapping = data_loader(c, policy.config, split, count=count, indices=indices)
     predictions = []
     for batch in loader:
         index = int(batch["index"].item())
@@ -197,11 +199,90 @@ def evaluate(c, bundle, *, split, output, checkpoint=None, count=None, device="c
     output.mkdir(parents=True)
     from .dataset import jsonl_bytes
     (output / "predictions.jsonl").write_bytes(jsonl_bytes(predictions))
-    report = {"status": "pass", "split": split, "partial": count is not None, "checkpoint": str(checkpoint or bundle / "initial_adapter"), "training_status": "not_verified" if checkpoint else "untrained_initial_adapter",
+    report = {"status": "pass", "split": split, "partial": count is not None or indices is not None, "checkpoint": str(checkpoint or bundle / "initial_adapter"), "training_status": "not_verified" if checkpoint else "untrained_initial_adapter",
               "seed_per_sample": c["seed"], "metrics": metrics(predictions), "normalization_source": "full/train", "base": BASE, "backbone": BACKBONE,
               "predictions_sha256": file_sha(output / "predictions.jsonl"), "dataset_export_lock_sha256": file_sha(c["_base"] / c["dataset_root"] / split / "export_lock.json")}
+    if indices is not None:
+        report["indices"] = list(indices)
+    if diagnostic is not None:
+        report["diagnostic"] = diagnostic
     write_json(output / "metrics.json", report)
     return report
+
+
+def evaluate(c, bundle, *, split, output, checkpoint=None, count=None, device="cpu"):
+    require(split in ("val", "test"), "Evaluator only accepts held-out val/test roots")
+    return _evaluate(c, bundle, split=split, output=output, checkpoint=checkpoint, count=count, device=device)
+
+
+def evaluate_tiny_overfit(c, bundle, *, checkpoint, output, count=56, device="cuda"):
+    from .training import tiny_overfit_selection
+    selection = tiny_overfit_selection(c, count)
+    report = _evaluate(c, bundle, split="train", output=output, checkpoint=checkpoint, count=None,
+                       device=device, indices=selection["episodes"], diagnostic="tiny_overfit_train_memorization")
+    overall = report["metrics"]["overall"]
+    thresholds = {"exact_action_accuracy": .90, "zone_accuracy": .95, "continuous_mae": .25}
+    passed = (overall["exact_action_accuracy"] >= thresholds["exact_action_accuracy"]
+              and overall["zone_accuracy"] >= thresholds["zone_accuracy"]
+              and overall["continuous_mae"] <= thresholds["continuous_mae"])
+    report["tiny_overfit_result"] = {"passed": passed, "thresholds": thresholds,
+                                      "records": selection["records"]}
+    write_json(Path(output) / "tiny_overfit_result.json", report["tiny_overfit_result"])
+    return report
+
+
+def fixed_validation_selection(c, count=56):
+    require(type(count) is int and count > 0 and count % 2 == 0, "validation subset count must be positive and even")
+    items = read_jsonl(c["_base"] / c["dataset_root"] / "val" / "sample_metadata.jsonl")
+    pairs = defaultdict(list)
+    for item in items:
+        row = item["source_record"]
+        pairs[(row["translation_pair_id"], row["wording_partition"])].append((item["episode_index"], row))
+    strata = defaultdict(list)
+    for key, pair in pairs.items():
+        require(len(pair) == 2 and {r["language"] for _, r in pair} == {"vi", "en"}, "validation pair incomplete")
+        row = pair[0][1]
+        strata[(row["intent"], row["wording_partition"], tuple(row["target_action"]))].append((key, pair))
+    for key in strata:
+        strata[key].sort(key=lambda x: __import__("hashlib").sha256(f"{c['seed']}:{x[0]}".encode()).hexdigest())
+    selected, positions = [], {key: 0 for key in strata}
+    keys = sorted(strata)
+    while len(selected) < count // 2:
+        progressed = False
+        for key in keys:
+            pos = positions[key]
+            if pos < len(strata[key]) and len(selected) < count // 2:
+                selected.append(strata[key][pos])
+                positions[key] += 1
+                progressed = True
+        require(progressed, "not enough validation pairs")
+    episodes = sorted(ep for _, pair in selected for ep, _ in pair)
+    require(len(episodes) == count, "validation selection size differs")
+    return {"version": 1, "seed": c["seed"], "split": "val", "records": count, "episodes": episodes,
+            "sample_ids": [items[i]["source_record"]["sample_id"] for i in episodes]}
+
+
+def sweep_checkpoints(c, bundle, *, checkpoints, output, count=56, device="cuda"):
+    new_output(output)
+    selection = fixed_validation_selection(c, count)
+    output.mkdir(parents=True)
+    write_json(output / "subset.json", selection)
+    summaries = []
+    for checkpoint in checkpoints:
+        checkpoint = Path(checkpoint).resolve()
+        require(checkpoint.name == "pretrained_model" and checkpoint.parent.parent.name == "checkpoints",
+                f"Unexpected checkpoint path: {checkpoint}")
+        step = int(checkpoint.parent.name)
+        report = _evaluate(c, bundle, split="val", output=output / f"step-{step:06d}", checkpoint=checkpoint,
+                           count=None, device=device, indices=selection["episodes"], diagnostic="fixed_validation_subset")
+        summaries.append({"step": step, "checkpoint": str(checkpoint), **report["metrics"]["overall"]})
+    summaries.sort(key=lambda x: x["step"])
+    best = max(summaries, key=lambda x: (x["exact_action_accuracy"], x["zone_accuracy"], -x["continuous_mae"]))
+    result = {"status": "pass", "split": "val", "partial": True, "selection": selection,
+              "ranking_rule": "max exact_action, then zone_accuracy, then min continuous_mae",
+              "checkpoints": summaries, "best_step": best["step"]}
+    write_json(output / "summary.json", result)
+    return result
 
 
 def infer_scene(c,bundle,*,images,instruction,output,checkpoint=None,device="cpu"):

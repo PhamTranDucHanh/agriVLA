@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgriVLA · Three-zone irrigation lab</title>
+  <link rel="stylesheet" href="/demo.css">
+  <script src="/demo.js" defer></script>
+</head>
+<body>
+  <header class="hero">
+    <div class="brand"><span>AGRI</span>VLA</div>
+    <div class="hero-copy">
+      <p class="eyebrow">SmolVLA 0.45B · LoRA · local GPU</p>
+      <h1>Three-zone irrigation lab</h1>
+      <p>Đưa ba ảnh cây đậu nành và một chỉ dẫn ngôn ngữ vào policy đã train, sau đó quan sát mức tưới và trạng thái van dự đoán.</p>
+    </div>
+    <div id="modelStatus" class="status loading"><i></i><span>Đang tải model</span></div>
+  </header>
+
+  <main>
+    <aside id="qualityWarning" class="notice warning" hidden></aside>
+    <section class="panel">
+      <div class="section-title">
+        <div><span class="step">01</span><h2>Ảnh ba khu vực</h2></div>
+        <p>Mỗi ảnh được letterbox về 256×256 giống pipeline training.</p>
+      </div>
+      <div class="zones" id="zoneInputs"></div>
+      <p class="fine-print">Mức héo là chú thích để bạn đối chiếu trên giao diện và <strong>không được gửi vào model</strong>. Model chỉ nhận ba ảnh, instruction và state ba van đóng <code>[0,0,0]</code>.</p>
+    </section>
+
+    <section class="panel prompt-panel">
+      <div class="section-title">
+        <div><span class="step">02</span><h2>Instruction</h2></div>
+        <p>Nhập tiếng Việt hoặc tiếng Anh.</p>
+      </div>
+      <label for="instruction" class="sr-only">Instruction</label>
+      <textarea id="instruction" rows="3" placeholder="Ví dụ: Xem cả 3 khu vực, tưới khu vực héo nhất ở mức cao."></textarea>
+      <div class="prompt-actions">
+        <div class="examples">
+          <button type="button" data-prompt="Xem cả 3 khu vực, tưới khu vực héo nhất ở mức cao.">Héo nhất · HIGH</button>
+          <button type="button" data-prompt="Chỉ tưới khu vực 2 ở mức thấp.">Zone 2 · LOW</button>
+          <button type="button" data-prompt="Dừng tưới tất cả khu vực.">STOP ALL</button>
+        </div>
+        <button id="runButton" class="run" type="button" disabled>Chạy SmolVLA <span>→</span></button>
+      </div>
+      <p id="formError" class="form-error" hidden></p>
+    </section>
+
+    <section id="resultPanel" class="panel results" hidden>
+      <div class="section-title">
+        <div><span class="step">03</span><h2>Kết quả policy</h2></div>
+        <p id="latency"></p>
+      </div>
+      <div id="valveResults" class="valves"></div>
+      <div class="raw-result">
+        <div><span>Continuous action</span><code id="continuousAction"></code></div>
+        <div><span>Quantized action</span><code id="quantizedAction"></code></div>
+        <div><span>Input valve state</span><code>[0, 0, 0]</code></div>
+      </div>
+      <p class="fine-print">OFF=0 · LOW=1 · MEDIUM=2 · HIGH=3. Đây là output synthetic policy; giao diện không điều khiển van thật.</p>
+    </section>
+  </main>
+  <footer><span>AgriVLA research prototype</span><span>Inference chạy local tại 127.0.0.1</span></footer>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgriVLA Step 9 Evaluation</title>
+  <link rel="stylesheet" href="./step9.css">
+  <script src="./step9.js" defer></script>
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">AgriVLA · Step 9</p>
+      <h1>Validation &amp; test results</h1>
+      <p class="subtitle">Checkpoint 6.000 · SmolVLA 0.45B + LoRA · wording_v1</p>
+    </div>
+    <div id="loadStatus" class="status loading">Đang đọc artifacts…</div>
+  </header>
+
+  <main>
+    <section id="warning" class="warning" hidden></section>
+
+    <section aria-labelledby="summaryTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Tổng quan</p>
+          <h2 id="summaryTitle">Ba metric chính</h2>
+        </div>
+        <p>Exact-action càng cao càng tốt; zone accuracy càng cao càng tốt; MAE càng thấp càng tốt.</p>
+      </div>
+      <div id="metricCards" class="metric-grid"></div>
+    </section>
+
+    <section aria-labelledby="intentTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Phân tích lỗi</p>
+          <h2 id="intentTitle">Kết quả theo intent</h2>
+        </div>
+        <label>Split
+          <select id="intentSplit">
+            <option value="test">Test</option>
+            <option value="val">Validation</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Intent</th><th>Records</th><th>Exact</th><th>Zone</th><th>MAE</th><th>Outside [0,3]</th></tr></thead>
+          <tbody id="intentRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="predictionTitle">
+      <div class="section-heading prediction-heading">
+        <div>
+          <p class="eyebrow">Prediction inspector</p>
+          <h2 id="predictionTitle">Xem từng mẫu</h2>
+        </div>
+        <div class="filters">
+          <label>Split
+            <select id="splitFilter"><option value="test">Test</option><option value="val">Validation</option></select>
+          </label>
+          <label>Ngôn ngữ
+            <select id="languageFilter"><option value="all">Tất cả</option><option value="vi">VI</option><option value="en">EN</option></select>
+          </label>
+          <label>Kết quả
+            <select id="resultFilter"><option value="all">Tất cả</option><option value="wrong">Sai</option><option value="correct">Đúng</option><option value="range">Ngoài miền</option></select>
+          </label>
+        </div>
+      </div>
+      <p id="predictionCount" class="muted"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sample</th><th>Language</th><th>Intent</th><th>Target</th><th>Prediction</th><th>Continuous</th><th>Status</th></tr></thead>
+          <tbody id="predictionRows"></tbody>
+        </table>
+      </div>
+      <p class="muted">Viewer hiển thị tối đa 100 dòng sau khi lọc; artifacts JSONL vẫn giữ đủ 720 dòng cho mỗi split.</p>
+    </section>
+  </main>
+
+  <footer>Đây là evaluation của synthetic policy action, không phải phép đo hiệu quả tưới ngoài thực địa.</footer>
+</body>
+</html>

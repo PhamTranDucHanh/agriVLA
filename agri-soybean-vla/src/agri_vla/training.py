@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -22,6 +23,8 @@ BASE = {"repo_id": "lerobot/smolvla_base", "revision": "5e8d12a6e2975b0e5e5fce7c
 BACKBONE = {"repo_id": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct", "revision": "7b375e1b73b11138ff12fe22c8f2822d8fe03467"}
 CAMERAS = tuple(f"observation.images.camera{i}" for i in (1, 2, 3))
 INPUT_LOCK = "c59005a5d4eea36731051f5b82a9341d9be5ae50cca4aafcad1055743ef16563"
+AMP_INIT_SCALE = 1024.0
+AMP_GROWTH_INTERVAL = 2000
 
 
 def file_sha(path):
@@ -195,12 +198,63 @@ def make_policy_config(c, *, device="cpu"):
     return cfg
 
 
-def train_config(c, bundle, *, output, steps=None, device="cuda"):
+def tiny_overfit_selection(c, count=56):
+    """Deterministic bilingual, intent-balanced TRAIN diagnostic; never rewrites data."""
+    require(type(count) is int and 32 <= count <= 64 and count % 2 == 0,
+            "tiny overfit count must be an even number in [32,64]")
+    rows = read_jsonl(c["_base"] / c["dataset_root"] / "train" / "sample_metadata.jsonl")
+    cases = defaultdict(list)
+    for item in rows:
+        row = item["source_record"]
+        cases[(row["intent"], row["case_id"])].append((item["episode_index"], row))
+    by_intent = defaultdict(list)
+    for (intent, case_id), pair in cases.items():
+        require(len(pair) == 2 and {r["language"] for _, r in pair} == {"vi", "en"},
+                "tiny overfit requires complete VI/EN train pairs")
+        require(len({tuple(r["target_action"]) for _, r in pair}) == 1, "translation targets differ")
+        row = pair[0][1]
+        by_intent[intent].append({"case_id": case_id, "target_action": row["target_action"],
+                                  "scene_id": row["scene_id"], "pair": pair})
+    intents = sorted(by_intent)
+    require(len(intents) == 7, "expected seven wording_v1 intents")
+    pair_count = count // 2
+    quotas = {intent: pair_count // len(intents) for intent in intents}
+    for intent in intents[:pair_count % len(intents)]:
+        quotas[intent] += 1
+    selected = []
+    for intent in intents:
+        candidates = sorted(by_intent[intent], key=lambda x: digest(f"{c['seed']}:{x['case_id']}".encode()))
+        chosen, used_targets = [], set()
+        while len(chosen) < quotas[intent]:
+            remaining = [x for x in candidates if x not in chosen]
+            require(remaining, f"not enough tiny-overfit cases for {intent}")
+            candidate = max(remaining, key=lambda x: (tuple(x["target_action"]) not in used_targets,
+                                                       -sum(y["scene_id"] == x["scene_id"] for y in chosen)))
+            chosen.append(candidate)
+            used_targets.add(tuple(candidate["target_action"]))
+        selected.extend(chosen)
+    episodes = sorted(ep for case in selected for ep, _ in case["pair"])
+    report_rows = sorted(({"episode_index": ep, "sample_id": row["sample_id"], "case_id": row["case_id"],
+                           "scene_id": row["scene_id"], "language": row["language"], "intent": row["intent"],
+                           "target_action": row["target_action"]}
+                          for case in selected for ep, row in case["pair"]), key=lambda x: x["episode_index"])
+    require(len(episodes) == count and len(set(episodes)) == count, "tiny-overfit selection size differs")
+    return {"version": 1, "seed": c["seed"], "split": "train", "records": count,
+            "episodes": episodes, "intent_records": dict(sorted(Counter(r["intent"] for r in report_rows).items())),
+            "rows": report_rows}
+
+
+def train_config(c, bundle, *, output, steps=None, device="cuda", episodes=None, learning_rate=None, save_freq=None):
     from lerobot.configs.train import TrainPipelineConfig
     from lerobot.configs.default import DatasetConfig, PeftConfig, WandBConfig
     from lerobot.policies.smolvla.configuration_smolvla import SmolVLAConfig
     root = c["_base"] / c["dataset_root"] / "train"
     cfg = SmolVLAConfig.from_pretrained(bundle / "base_policy")
+    if learning_rate is not None:
+        require(type(learning_rate) is float and 0 < learning_rate <= 3e-4, "invalid learning rate")
+        cfg.optimizer_lr = learning_rate
+        cfg.scheduler_decay_lr = learning_rate / 10
+        cfg.scheduler_decay_steps = steps or c["training"]["steps"]
     cfg.device, cfg.use_amp = device, device == "cuda"
     cfg.pretrained_path = bundle / "base_policy"
     cfg.vlm_model_name = str(asset_path(c, BACKBONE))
@@ -210,6 +264,9 @@ def train_config(c, bundle, *, output, steps=None, device="cuda"):
              policy=cfg, peft=PeftConfig(**c["peft"]), output_dir=Path(output), job_name="agri_soybean_v0", seed=c["seed"], num_workers=t["num_workers"], batch_size=1,
              steps=t["steps"] if steps is None else steps, save_freq=t["save_freq"], log_freq=t["log_freq"], env_eval_freq=0, eval_steps=0, wandb=WandBConfig(enable=False), persistent_workers=False)
     result.dataset.image_transforms.enable = False
+    result.dataset.episodes = episodes
+    if save_freq is not None:
+        result.save_freq = save_freq
     result.optimizer, result.scheduler = cfg.get_optimizer_preset(), cfg.get_scheduler_preset()
     return result
 
@@ -279,7 +336,26 @@ def prepare_training(c, *, download=False, dry_run=False, output=None):
     return read_json(bundle / "preparation_report.json")
 
 
-def launch_training(c, bundle, *, output, steps=None, execute=False):
+def resume_checkpoint(c, bundle, path, *, final_steps):
+    checkpoint = Path(path).resolve()
+    model = checkpoint / "pretrained_model"
+    state = checkpoint / "training_state"
+    require(checkpoint.is_dir() and model.is_dir() and state.is_dir(), "Resume path must be a checkpoint directory")
+    step_info = read_json(state / "training_step.json")
+    require(type(step_info.get("step")) is int and 0 < step_info["step"] < final_steps,
+            "Resume step must be positive and smaller than final steps")
+    for name in ("optimizer_state.safetensors", "optimizer_param_groups.json", "scheduler_state.json", "rng_state.safetensors"):
+        require((state / name).is_file(), f"Incomplete resume state: {name}")
+    provenance = read_json(model / "agri_provenance.json")
+    require(provenance == read_json(bundle / "provenance.json"), "Resume checkpoint provenance differs")
+    require(read_json(model / "agri_schema.json") == read_json(bundle / "schema.json"), "Resume checkpoint schema differs")
+    for name, sha in read_json(model / "agri_checkpoint_lock.json")["files"].items():
+        require(file_sha(model / name) == sha, f"Resume checkpoint checksum differs: {name}")
+    return checkpoint, step_info
+
+
+def launch_training(c, bundle, *, output, steps=None, execute=False, resume_from=None,
+                    tiny_overfit_count=None, learning_rate=None):
     """Only explicit --execute on CUDA calls the unmodified upstream training loop."""
     from .evaluation import check_bundle
     check_bundle(c, bundle)
@@ -287,29 +363,104 @@ def launch_training(c, bundle, *, output, steps=None, execute=False):
     require(steps is None or type(steps) is int and steps > 0, "steps must be positive")
     new_output(output)
     runtime(c, device="cuda" if execute else "cpu")
-    cfg = train_config(c, bundle, output=output, steps=steps)
-    result = {"status": "ready" if execute else "dry_run", "resolved_config": cfg.to_dict(), "gpu_fit_verified": False}
+    final_steps = c["training"]["steps"] if steps is None else steps
+    tiny = tiny_overfit_selection(c, tiny_overfit_count) if tiny_overfit_count is not None else None
+    require(tiny is None or resume_from is None, "tiny overfit must start from a fresh LoRA")
+    require((tiny is None) == (learning_rate is None), "tiny overfit and learning rate must be specified together")
+    cfg = train_config(c, bundle, output=output, steps=steps,
+                       episodes=tiny["episodes"] if tiny else None, learning_rate=learning_rate,
+                       save_freq=min(100, final_steps) if tiny else None)
+    resume = None
+    if resume_from is not None:
+        resume = resume_checkpoint(c, bundle, resume_from, final_steps=final_steps)
+        cfg.resume = True
+    amp_runtime = {
+        "mixed_precision": "fp16",
+        "init_scale": AMP_INIT_SCALE,
+        "growth_interval": AMP_GROWTH_INTERVAL,
+        "nonfinite_guard": True,
+    }
+    result = {"status": "ready" if execute else "dry_run", "resolved_config": cfg.to_dict(),
+              "amp_runtime": amp_runtime, "gpu_fit_verified": False}
+    if tiny is not None:
+        result["tiny_overfit"] = {k: v for k, v in tiny.items() if k != "rows"}
+        result["tiny_overfit"]["learning_rate"] = learning_rate
+    if resume is not None:
+        result["resume"] = {"checkpoint": str(resume[0]), "step": resume[1]["step"],
+                            "restores": ["adapter", "optimizer", "scheduler", "rng", "data_order"]}
     if not execute:
         return result
     # Do not let the parser re-read this wrapper's unrelated command-line flags.
     # validate() itself consults argv, so keep argv clean for the entire upstream call.
     from lerobot.scripts import lerobot_train as upstream
+    from accelerate import Accelerator
+    from accelerate.utils import DistributedDataParallelKwargs, GradScalerKwargs
     previous = sys.argv
     original_save = upstream.save_checkpoint
+    original_update = upstream.update_policy
+    original_make_policy = upstream.make_policy
     def save_with_contract(*args, **kwargs):
         result = original_save(*args, **kwargs)
         folder = Path(kwargs.get("checkpoint_dir", args[0] if args else ""))/"pretrained_model"
+        if resume is not None and not (folder / "config.json").is_file():
+            policy = kwargs.get("policy")
+            require(policy is not None and hasattr(policy, "config"), "Resume checkpoint policy config unavailable")
+            policy.config.save_pretrained(folder)
         attach_checkpoint_contract(bundle, folder)
         return result
+    def update_with_finite_guard(*args, **kwargs):
+        updated = original_update(*args, **kwargs)
+        tracker = updated[0]
+        require(math.isfinite(tracker.loss.val), "Non-finite training loss; refusing to continue")
+        require(math.isfinite(tracker.grad_norm.val), "Non-finite gradient norm; refusing to continue")
+        optimizer = kwargs.get("optimizer", args[3] if len(args) > 3 else None)
+        require(not getattr(optimizer, "step_was_skipped", False), "AMP skipped an optimizer step; refusing to continue")
+        return updated
+    def make_resume_policy(*args, **kwargs):
+        """Load the pinned base, then attach the adapter-only checkpoint as trainable PEFT."""
+        policy_cfg = kwargs.get("cfg", args[0] if args else None)
+        checkpoint_model = resume[0] / "pretrained_model"
+        checkpoint_path = policy_cfg.pretrained_path
+        policy_cfg.pretrained_path = bundle / "base_policy"
+        try:
+            base_policy = original_make_policy(*args, **kwargs)
+        finally:
+            policy_cfg.pretrained_path = checkpoint_path
+        from peft import PeftModel
+        policy = PeftModel.from_pretrained(base_policy, checkpoint_model, is_trainable=True)
+        require(parameter_report(policy)["trainable"] == 371328, "Resume adapter trainable parameters changed")
+        return policy
     try:
         sys.argv = ["agri-vla-upstream"]
+        if resume is not None:
+            sys.argv.append(f"--config_path={resume[0] / 'pretrained_model' / 'train_config.json'}")
         upstream.save_checkpoint = save_with_contract
+        upstream.update_policy = update_with_finite_guard
+        if resume is not None:
+            upstream.make_policy = make_resume_policy
+            # The adapter is attached above; prevent upstream from wrapping a fresh adapter.
+            cfg.peft = None
         cfg.validate()
         require(cfg.policy.device == "cuda" and cfg.policy.use_amp and cfg.dataset.eval_split == 0., "CUDA/AMP/split configuration drift")
-        upstream.train(cfg)
+        accelerator = Accelerator(
+            step_scheduler_with_optimizer=False,
+            mixed_precision="fp16",
+            kwargs_handlers=[
+                DistributedDataParallelKwargs(find_unused_parameters=True),
+                GradScalerKwargs(init_scale=AMP_INIT_SCALE, growth_interval=AMP_GROWTH_INTERVAL),
+            ],
+        )
+        require(accelerator.device.type == "cuda" and accelerator.scaler is not None,
+                "Stable FP16 AMP accelerator was not created on CUDA")
+        upstream.train(cfg, accelerator=accelerator)
     finally:
         sys.argv = previous
         upstream.save_checkpoint = original_save
+        upstream.update_policy = original_update
+        upstream.make_policy = original_make_policy
+    if tiny is not None:
+        write_json(Path(output) / "tiny_overfit_selection.json", tiny | {"learning_rate": learning_rate,
+                                                                          "steps": final_steps})
     return result
 
 

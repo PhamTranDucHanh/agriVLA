@@ -56,6 +56,12 @@ def main(argv: list[str] | None = None) -> int:
             cmd.add_argument("--output", type=Path, required=True, help="NEW report/output path; existing output refused.")
         if name == "train-upstream":
             cmd.add_argument("--steps", type=int)
+            cmd.add_argument("--tiny-overfit-count", type=int,
+                             help="Fresh-LoRA train diagnostic using a deterministic 32-64 record TRAIN subset.")
+            cmd.add_argument("--learning-rate", type=float,
+                             help="Required with --tiny-overfit-count; does not change the pinned normal profile.")
+            cmd.add_argument("--resume-from", type=Path,
+                             help="Existing checkpoint directory (for example checkpoints/004000); restore adapter, optimizer, scheduler, RNG and step into a NEW output.")
             cmd.add_argument("--execute", action="store_true", help="Actually start upstream optimizer training; requires CUDA.")
             cmd.add_argument("--dry-run", action="store_true", help="Print config only (also the default).")
         if name in {"infer", "evaluate"}:
@@ -66,6 +72,25 @@ def main(argv: list[str] | None = None) -> int:
             if name == "infer":
                 cmd.add_argument("--images",type=Path,nargs=3,metavar=("ZONE1","ZONE2","ZONE3"),help="Three original RGB images, in zone order; conflicts with --split.")
                 cmd.add_argument("--instruction",help="Free-form VI/EN instruction; requires --images. Over-length input is rejected.")
+    tiny_eval = commands.add_parser("evaluate-tiny-overfit", help="Score the deterministic TRAIN memorization subset; diagnostic only.")
+    tiny_eval.add_argument("--config", type=Path, default=project_root() / "configs/training_v0.yaml")
+    tiny_eval.add_argument("--bundle", type=Path)
+    tiny_eval.add_argument("--checkpoint", type=Path, required=True)
+    tiny_eval.add_argument("--count", type=int, default=56)
+    tiny_eval.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
+    tiny_eval.add_argument("--output", type=Path, required=True)
+    sweep = commands.add_parser("sweep-checkpoints", help="Compare checkpoints on one fixed bilingual validation subset.")
+    sweep.add_argument("--config", type=Path, default=project_root() / "configs/training_v0.yaml")
+    sweep.add_argument("--bundle", type=Path)
+    sweep.add_argument("--checkpoint", type=Path, action="append", required=True)
+    sweep.add_argument("--count", type=int, default=56)
+    sweep.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
+    sweep.add_argument("--output", type=Path, required=True)
+    demo = commands.add_parser("demo-web", help="Local three-image + language SmolVLA interactive demo.")
+    demo.add_argument("--checkpoint", type=Path,
+                      default=project_root() / "outputs/train/step8-lora-6000-t1200-20261109-resume4500-v3/checkpoints/006000/pretrained_model")
+    demo.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
+    demo.add_argument("--port", type=int, default=8000)
     for command, help_text in (
         ("fetch-source", "Fetch/import raw files with checksums; never overwrite existing raw."),
         ("inspect-source", "Audit CSV/ZIP, materialize original image bytes and create source reports."),
@@ -132,6 +157,14 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--output-dir", type=Path, help="New audit directory; existing output is refused.")
             command.add_argument("--dry-run", action="store_true", help="Run checks without writing artifacts.")
     args = parser.parse_args(argv)
+    if args.command == "demo-web":
+        from .dataset import DatasetError
+        from .demo_server import serve_demo
+        try:
+            return serve_demo(checkpoint=args.checkpoint, device=args.device, port=args.port)
+        except (DatasetError, OSError, ValueError, RuntimeError, ImportError) as error:
+            print(f"Demo web error: {error}", file=sys.stderr)
+            return 2
     if args.command in {"compose-revision", "validate-revision", "browse-revision"}:
         from .dataset import DatasetError, load_compose_config
         from .revision import load_revision, compose_revision, validate_revision
@@ -166,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         except (DatasetError, ValueError, OSError, KeyError) as error:
             print(f"Handoff error: {error}", file=sys.stderr)
             return 2
-    if args.command in {"prepare-training", "check-model-inputs", "train-upstream", "infer", "evaluate"}:
+    if args.command in {"prepare-training", "check-model-inputs", "train-upstream", "infer", "evaluate",
+                        "evaluate-tiny-overfit", "sweep-checkpoints"}:
         from .dataset import DatasetError, safe_output, load_compose_config
         from .training import load_training_config, prepare_training, launch_training
         try:
@@ -182,7 +216,18 @@ def main(argv: list[str] | None = None) -> int:
                 if args.command == "train-upstream":
                     if args.execute and args.dry_run:
                         raise ValueError("--execute and --dry-run conflict")
-                    result = launch_training(c, bundle, output=args.output, steps=args.steps, execute=args.execute)
+                    result = launch_training(c, bundle, output=args.output, steps=args.steps,
+                                             execute=args.execute, resume_from=args.resume_from,
+                                             tiny_overfit_count=args.tiny_overfit_count,
+                                             learning_rate=args.learning_rate)
+                elif args.command == "evaluate-tiny-overfit":
+                    from .evaluation import evaluate_tiny_overfit
+                    result = evaluate_tiny_overfit(c, bundle, checkpoint=args.checkpoint, output=args.output,
+                                                   count=args.count, device=args.device)
+                elif args.command == "sweep-checkpoints":
+                    from .evaluation import sweep_checkpoints
+                    result = sweep_checkpoints(c, bundle, checkpoints=args.checkpoint, output=args.output,
+                                               count=args.count, device=args.device)
                 else:
                     from .evaluation import check_model_inputs, evaluate, infer_scene
                     if args.command == "check-model-inputs":

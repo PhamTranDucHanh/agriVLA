@@ -135,6 +135,108 @@ def test_checkpoint_contract_addition_preserves_upstream_files(tmp_path):
         attach_checkpoint_contract(bundle,folder)
 
 
+def test_stable_amp_runtime_is_exposed_by_dry_run(tmp_path, monkeypatch):
+    import agri_vla.training as training
+
+    c = load_training_config(project_root()/"configs/training_v0.yaml")
+    monkeypatch.setattr("agri_vla.evaluation.check_bundle", lambda *_: None)
+    monkeypatch.setattr(training, "verify_train_export", lambda *_: {"status": "pass"})
+    monkeypatch.setattr(training, "runtime", lambda *_, **__: None)
+    monkeypatch.setattr(training, "train_config", lambda *_, **__: type("Cfg", (), {"to_dict": lambda self: {}})())
+    result = training.launch_training(c, tmp_path/"bundle", output=tmp_path/"new-output")
+    assert result["amp_runtime"] == {
+        "mixed_precision": "fp16",
+        "init_scale": 1024.0,
+        "growth_interval": 2000,
+        "nonfinite_guard": True,
+    }
+    assert not (tmp_path/"new-output").exists()
+
+
+def test_tiny_overfit_selection_is_bilingual_and_intent_balanced(tmp_path, monkeypatch):
+    import agri_vla.training as training
+
+    rows = []
+    intents = ("AUTO", "CAP_LEVEL", "EXCLUDE_ZONE", "STOP_ALL", "WATER_ALL", "WORST_ONLY", "ZONE_ONLY")
+    episode = 0
+    for intent_index, intent in enumerate(intents):
+        for case_index in range(4):
+            case = f"{intent}-{case_index}"
+            target = [case_index % 4, intent_index % 4, (case_index + intent_index) % 4]
+            for language in ("vi", "en"):
+                rows.append({"episode_index": episode, "source_record": {
+                    "intent": intent, "case_id": case, "language": language,
+                    "target_action": target, "scene_id": f"scene-{case_index}",
+                    "sample_id": f"{case}-{language}",
+                }})
+                episode += 1
+    monkeypatch.setattr(training, "read_jsonl", lambda _: rows)
+    result = training.tiny_overfit_selection({"_base": tmp_path, "dataset_root": "unused", "seed": 42}, 56)
+    assert len(result["episodes"]) == len(set(result["episodes"])) == 56
+    assert result["intent_records"] == {intent: 8 for intent in sorted(intents)}
+    assert {row["language"] for row in result["rows"]} == {"vi", "en"}
+    with pytest.raises(DatasetError, match="even number"):
+        training.tiny_overfit_selection({"_base": tmp_path, "dataset_root": "unused", "seed": 42}, 55)
+
+
+def test_fixed_validation_selection_reuses_complete_translation_pairs(tmp_path, monkeypatch):
+    import agri_vla.evaluation as evaluation
+
+    rows = []
+    episode = 0
+    for intent in ("AUTO", "CAP_LEVEL", "EXCLUDE_ZONE", "STOP_ALL", "WATER_ALL", "WORST_ONLY", "ZONE_ONLY"):
+        for wording in ("seen", "unseen"):
+            for pair_index in range(2):
+                pair_id = f"{intent}-{wording}-{pair_index}"
+                for language in ("vi", "en"):
+                    rows.append({"episode_index": episode, "source_record": {
+                        "translation_pair_id": pair_id, "wording_partition": wording,
+                        "language": language, "intent": intent,
+                        "target_action": [pair_index, pair_index, pair_index],
+                        "sample_id": f"{pair_id}-{language}",
+                    }})
+                    episode += 1
+    monkeypatch.setattr(evaluation, "read_jsonl", lambda _: rows)
+    c = {"_base": tmp_path, "dataset_root": "unused", "seed": 42}
+    first = evaluation.fixed_validation_selection(c, 56)
+    second = evaluation.fixed_validation_selection(c, 56)
+    assert first == second and len(first["episodes"]) == 56
+    selected = [rows[i]["source_record"] for i in first["episodes"]]
+    pairs = {}
+    for row in selected:
+        pairs.setdefault((row["translation_pair_id"], row["wording_partition"]), set()).add(row["language"])
+    assert all(languages == {"vi", "en"} for languages in pairs.values())
+
+
+def test_resume_checkpoint_requires_complete_state_and_contract(tmp_path):
+    from agri_vla.training import resume_checkpoint, file_sha
+
+    bundle = tmp_path/"bundle"
+    checkpoint = tmp_path/"run/checkpoints/004000"
+    model = checkpoint/"pretrained_model"
+    state = checkpoint/"training_state"
+    model.mkdir(parents=True)
+    state.mkdir()
+    (bundle).mkdir()
+    provenance = {"dataset": "locked"}
+    schema = {"action": {"shape": [3]}}
+    for root, name, value in ((bundle,"provenance.json",provenance), (bundle,"schema.json",schema),
+                              (model,"agri_provenance.json",provenance), (model,"agri_schema.json",schema)):
+        (root/name).write_text(json.dumps(value))
+    (model/"adapter_model.safetensors").write_bytes(b"adapter")
+    (model/"agri_checkpoint_lock.json").write_text(json.dumps({"files": {
+        "adapter_model.safetensors": file_sha(model/"adapter_model.safetensors")
+    }}))
+    (state/"training_step.json").write_text(json.dumps({"step": 4000, "num_processes": 1, "batch_size": 1}))
+    for name in ("optimizer_state.safetensors", "optimizer_param_groups.json", "scheduler_state.json", "rng_state.safetensors"):
+        (state/name).write_bytes(b"state")
+    resolved, info = resume_checkpoint({}, bundle, checkpoint, final_steps=6000)
+    assert resolved == checkpoint.resolve() and info["step"] == 4000
+    (state/"rng_state.safetensors").unlink()
+    with pytest.raises(DatasetError, match="Incomplete resume state"):
+        resume_checkpoint({}, bundle, checkpoint, final_steps=6000)
+
+
 @pytest.mark.parametrize("instruction",["Tưới cả 3 vườn","tưới cả ba vườn!","Water all 3 gardens"])
 def test_raw_inference_refuses_ambiguous_level_before_model_import(tmp_path,instruction):
     from agri_vla.evaluation import infer_scene
