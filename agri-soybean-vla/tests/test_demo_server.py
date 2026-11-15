@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from agri_vla.dataset import DatasetError
-from agri_vla.demo_server import DemoRuntime, decode_image, validate_request
+from agri_vla.demo_server import DemoRuntime, decode_image, validate_request, DEFAULT_CHECKPOINT
 
 
 needs_numpy = pytest.mark.skipif(importlib.util.find_spec("numpy") is None,
@@ -51,5 +51,11 @@ def test_runtime_status_warns_about_checkpoint_quality(tmp_path):
     runtime = DemoRuntime(tmp_path / "checkpoint", device="cuda")
     status = runtime.status_payload()
     assert status["status"] == "loading"
-    assert "chưa đạt baseline" in status["quality_warning"]
+    assert "chưa được xác minh" in status["quality_warning"]
     assert status["state_semantics"].startswith("Ba van đầu vào")
+    assert "chưa đạt baseline" in DemoRuntime(DEFAULT_CHECKPOINT, device='cuda').status_payload()['quality_warning']
+    diagnostic = tmp_path / 'small_checkpoint'
+    diagnostic.mkdir()
+    (diagnostic / 'small_experiment.json').write_text('{}')
+    message = DemoRuntime(diagnostic, device='cuda').status_payload()['quality_warning']
+    assert 'tập nhỏ' in message and '6000' not in message

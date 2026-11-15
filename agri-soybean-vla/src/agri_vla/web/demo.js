@@ -1,4 +1,4 @@
-const state = { modelReady: false, images: [null, null, null] };
+const state = { modelReady: false, images: [null, null, null], expected: null };
 const $ = (id) => document.getElementById(id);
 
 function createZones() {
@@ -29,6 +29,7 @@ function createZones() {
 }
 
 function readImage(index, file, card) {
+  clearExpected();
   const error = $("formError");
   error.hidden = true;
   if (!file) return;
@@ -62,6 +63,7 @@ async function pollStatus() {
       data.status === "error" ? "Model tải lỗi" : "Đang tải model";
     $("qualityWarning").textContent = data.error || data.quality_warning;
     $("qualityWarning").hidden = false;
+    $("modelIdentity").textContent = `Checkpoint đang dùng: ${data.checkpoint}`;
     state.modelReady = data.status === "ready";
     $("runButton").disabled = !state.modelReady;
     if (data.status === "loading") setTimeout(pollStatus, 1500);
@@ -73,11 +75,12 @@ async function pollStatus() {
   }
 }
 
-function showResults(data, elapsed) {
+function showResults(data, elapsed, expected) {
   $("resultPanel").hidden = false;
   $("latency").textContent = `HTTP round trip ${(elapsed / 1000).toFixed(2)} s`;
   $("continuousAction").textContent = `[${data.continuous_action.map(x => x.toFixed(3)).join(", ")}]`;
   $("quantizedAction").textContent = `[${data.quantized_action.join(", ")}]`;
+  $("targetComparison").textContent = expected ? `Target [${expected.join(', ')}] · ${expected.every((x,i) => x === data.quantized_action[i]) ? 'ĐÚNG cả ba vùng' : 'SAI — xem từng vùng bên dưới'}` : 'Ảnh/câu tự nhập: chưa có target để chấm.';
   $("valveResults").innerHTML = data.zones.map(zone => `
     <article class="valve ${zone.valve_open ? "open" : ""}">
       <div class="valve-head"><h3>Khu vực ${zone.zone}</h3><div class="valve-icon">✦</div></div>
@@ -101,6 +104,7 @@ async function runInference() {
   button.disabled = true;
   button.firstChild.textContent = "Đang suy luận… ";
   const started = performance.now();
+  const expected = state.expected ? [...state.expected] : null;
   try {
     const wiltNotes = [0, 1, 2].map(index => {
       const value = $(`wilt-${index}`).value;
@@ -112,7 +116,7 @@ async function runInference() {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    showResults(data, performance.now() - started);
+    showResults(data, performance.now() - started, expected);
   } catch (caught) {
     error.textContent = caught.message;
     error.hidden = false;
@@ -123,8 +127,40 @@ async function runInference() {
 }
 
 createZones();
+function clearExpected() {
+  state.expected = null;
+  $("expectedTarget").textContent = 'Input đã thay đổi; chưa có target để chấm.';
+  $("samplePicker").value = '';
+  $("resultPanel").hidden = true;
+}
+async function loadExamples() {
+  try {
+    const response = await fetch('/api/examples');
+    const data = await response.json();
+    data.examples.forEach((row, i) => {
+      const option = document.createElement('option'); option.value = String(i); option.textContent = row.label;
+      $("samplePicker").appendChild(option);
+    });
+    $("samplePicker").addEventListener('change', () => {
+      if ($("samplePicker").value === '') { clearExpected(); return; }
+      const row = data.examples[Number($("samplePicker").value)];
+      state.images = [...row.images]; state.expected = [...row.target_action];
+      $("instruction").value = row.instruction;
+      row.images.forEach((src, i) => {
+        const card = $("zoneInputs").children[i]; let img = card.querySelector('img');
+        if (!img) { img = document.createElement('img'); img.alt = `Ảnh vùng ${i+1}`; card.querySelector('.drop-zone').appendChild(img); }
+        img.src = src; card.querySelector('.placeholder').hidden = true;
+        $(`zone-${i}`).value = ''; $(`wilt-${i}`).value = String(row.wilt_notes[i]);
+      });
+      $("expectedTarget").textContent = `Đáp án mẫu train: [${row.target_action.join(', ')}]. Target chỉ hiển thị để đối chiếu, không gửi vào model.`;
+      $("resultPanel").hidden = true;
+    });
+  } catch (error) { $("expectedTarget").textContent = 'Chưa tải được mẫu; bạn vẫn có thể upload ảnh.'; }
+}
+$("instruction").addEventListener('input', clearExpected);
+loadExamples();
 document.querySelectorAll("[data-prompt]").forEach(button => {
-  button.addEventListener("click", () => { $("instruction").value = button.dataset.prompt; });
+  button.addEventListener("click", () => { clearExpected(); $("instruction").value = button.dataset.prompt; });
 });
 $("runButton").addEventListener("click", runInference);
 pollStatus();

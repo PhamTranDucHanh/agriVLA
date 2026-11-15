@@ -1,12 +1,51 @@
 # AGRIVLA — PROJECT CONTEXT & CODEX IMPLEMENTATION HANDOFF
 
+## Hiện hành: TẠM DỪNG thí nghiệm, deploy web theo yêu cầu người dùng15/11
+
+Đã hoàn tất LR1e-4 trên TRAIN60 tới300updates (native resume100→300 sau gián đoạn111). Screen seed0/42 exact80%/98.33%, zone92.22%/99.44%, STOP100% cảhai; chưa đạt100% mọiseed. Người dùng yêu cầu tạm dừng kiểm chứng và đưa model mới lên web; đã dừng đúng process fresh-reload đang chạy, không train/evaluate tiếpfull60. Full B1five-seed reload/resource probe mới chưa hoàn tất, không gọi full-ready.
+
+Web http://127.0.0.1:8000 chạy checkpoint outputs/small-cases/cases60-r8-wide-b4-n2-lr1e4-resume100-v6/checkpoints/000300/pretrained_model. Có8presets:7nhóm lệnh VI và1mẫu EN còn sai; chọn sẽ nạp ảnh/câu và target đối chiếu client-side, target không đưa vào model. API thật7/7ví dụ VI đúng, EN EXCLUDE_ZONE vẫn sai; report reports/small-cases/web-improved-check.json. Dataset browser8765 đã mở lại. Fileweights adapter_model.safetensors, wholefolder+basecache cần giữ. Hướng dẫn trực tiếp: agri-soybean-vla/DEPLOY_IMPROVED.md. selected.env/selected-model.json trỏmodel300. Full training chỉ có CPUplan/native data3600proof, chưa execute; candidate_train.py yêu cầu certificate100% chưa có. Không commit/push/vendor/data/oldmodelchanges. Các trạng thái đang chạy phía dưới là lịch sử trước yêu cầu dừng.
+
+
 **Ngày tổng hợp:** 2026-11-05  
 **Ngôn ngữ làm việc:** Tiếng Việt; tên biến/code và thuật ngữ kỹ thuật có thể dùng tiếng Anh.  
 **Repo:** https://github.com/PhamTranDucHanh/agriVLA  
 **Nhánh triển khai hiện tại:** `feat/compose-dataset`, được người dùng tạo từ `dev` ngày 2026-11-05 bằng `git checkout -b feat/compose-dataset`. Mọi thay đổi tiếp theo thực hiện trên nhánh này; không sửa trực tiếp `main` hoặc `dev`, giữ nguyên các demo hiện có.  
 **Mục đích tài liệu:** Chuyển giao bối cảnh, thiết kế, giới hạn dữ liệu và cách đánh giá. **Bước 0–6 đã PASS_CPU, gồm browser HTML 4.5 và wording_v1/model preparation**. Bước7–9 phải tiếp tục trên máy GPU mới. Kết quả thực tế nằm trong [AGRIVLA_IMPLEMENTATION_STATUS.md](AGRIVLA_IMPLEMENTATION_STATUS.md).
 
-## Hiện hành — đọc trước khi tiếp tục trên máy GPU (2026-11-06)
+## Hiện hành — tìm cấu hình học được trên train nhỏ (2026-11-15, đang thực hiện)
+
+Cập nhật15/11 thay thế các trạng thái đang chạy ngày12/13 dưới đây: batch2 và batch4 micro đã hoàn tất1000updates. Micro8 batch4 có39/40 predictions đúng với Euler10; giữ nguyên weights/input/five-noise-seeds, native Euler1/2/4 đạt40/40, Euler2 cóMAE thấp nhất. Candidate version4 lưu num_steps2. Run60 q/v LoRA1000updates exact43.33/55% seed0/42, chưa đạt. Version6 mở LoRA thêm k/o/gate/up/down trong action expert (1,756,800trainable, r8/alpha8), VLM/vision frozen: bước300 exact61.67/70%; run bị CUDA unknown error ở520, chưa có bằng chứngOOM. Đang native full-state resume từ300 ra output mới cases60-r8-wide-b4-n2-resume300-v6, giữ nguyên report lỗi và nguồn.
+
+Resume GPU99→100 của cả batch2 và wide batch4 đã PASS: sample order, RNG trước forward, loss, adapter/optimizer/RNG tensors và scheduler/step/AMPscaler đều exact(maxerror0). Wide có234adapter tensors/702optimizer tensors. Wrapper sửa prepared-loader epoch/CPU RNG bằng public API, không sửa vendor. small_train bổ sung --resume-checkpoint cho cùng panel/profile, native state +AMPscaler và continuation; --init-checkpoint vẫn weights-only. CPU regression14PASS gồm tiếp nối20updates qua epoch với8/B2 và60/B4. Longest-prompt B2 backward PASS74tokens/3camera256; wide B4 cần kiểm sau run.
+
+Native input audit fulltrain3600actions/10800camera tensors và subset60 exact,0input-target conflicts; arithmetic3600targets0mismatch. Chưa chốt cấu hình học đúng toàn panel60; không chạyfull3600/val/test, không commit/push. Browser dataset đã khởi động lại15/11 tại http://127.0.0.1:8765/?view=samples&page_size=48. Báo cáo chính SMALL_CASES_EXPERIMENTS.md; raw reports/small-cases, weights outputs/small-cases. Các đoạn ngày12/13 dưới đây là lịch sử, không phải trạng thái runtime mới nhất.
+
+Người dùng đã cho phép chạy thí nghiệm tập nhỏ để tìm config trước full train, yêu cầu giải thích từng trường hợp/kết quả/thay đổi và giới hạn tăng accuracy. **Đang thực hiện**, không chạy full train hoặc tuning val/test, không commit/push. Tài liệu chính: **agri-soybean-vla/SMALL_CASES_EXPERIMENTS.md**; source small_cases.py/small_train.py, configs small_cases_v1/v2/v3.yaml. Các panel train cố định8/32/60records, ba camera/tokenizer96/saved processors/full-train stats giữ nguyên; v3 chốt trước khi train32/60 yêu cầu100% ở5noise seeds0/1/2/3/42.
+
+Đã train thật micro8 từ pinned base với r8/alpha8, constantLR3e-4/warmup20/batch1/1000updates: screen exact75%/87.5% ởseed0/42; nămseeds B1 exact75/100/100/100/87.5%, chưa đạt. Mở full bốn action/time projections (1.93Mtrainable) cùngsettings còn25%/25%, không chọn. Cả hai fresh-process reload match16reference predictions maxerror0. Checkpoint6000 baseline đo lại cùngpanel60/5seeds: exact23.33/0/18.33/11.67/0%; seed42zone29.44%/STOP0. Independent arithmetic target audit3600train0mismatch. R8 batch2 đang chạy, chưa chốt config. Rawreports/checkpoints ở reports/small-cases và outputs/small-cases (ignored), model6000 và dataset không ghi đè.
+
+Đã thêm small_resume.py để kiểm native resume một update so nhánh liên tục và small_memory.py để kiểm longest-train-prompt forward/backward. Các run mới lưu checkpoint99/100 thật +AMPscaler state; chưa gọi resume đạt chỉ vì có files. Regression CPU cho prepared-loader epoch/RNG nối tiếp PASS; cần kết quả actual GPU resume. Không tự coi mọi candidate YAML đã được chạy hoặc coi memorization là test accuracy.
+
+## Checkpoint từ máy bạn đã chạy trên máy này (2026-11-12)
+
+Repo tại commit a4f2f79 có training diagnostics/resume/evaluation/demo-web và README_TRAINING_DEMO_PROGRESS.md. Đã nhận ZIP step6000 ở agri-soybean-vla/output/DACN-DATN, kiểm checksum/15checkpoint hashes/optimizer state6000 và adapter finite371328params. Đã giải nén đủ21files, đặt checkpoint chuẩn ở agri-soybean-vla/outputs/train/step8-lora-6000-t1200-20261109-resume4500-v3/checkpoints/006000/pretrained_model. **File đã train: adapter_model.safetensors**; cần pinned base + tokenizer/processor/train stats để inference, không dùng initial_adapter.
+
+Gói bước6 đã được kiểm2375files, khôi phục runtime data/modelcache (giữ cache copy dở ngoài modelcache), prepare bundle paths mới PASS, round-trip5040records và tokenizer96/276prompts PASS. CLI infer CUDA và web/API localhost8000 đã chạy thật. Cùng ảnh wilt[0,2,4]: AUTO[1,3,1] vs[0,1,3]; STOP[0,2,0] vszeros; WATER_ALL2[3,3,2] vs[2,2,2]. CLI/API trùng prediction, nhưng cả ba examples sai. Không training trong lượt này.
+
+Chất lượng theo README_TRAINING_DEMO_PROGRESS.md của bạn: full-test exact1.81%/zone32.50%/STOP0%, baseline OFF exact28.89%; tiny-overfit FAIL. ZIP không kèm raw metrics/predictions step9 nên các số này là documented results, chưa tự đánh giá lại. Model chạy được về kỹ thuật, chưa đạt policy/quality; không gọi deployment tưới thật hoàn chỉnh. Guide đầy đủ **agri-soybean-vla/DEPLOY_STEP6000.md**; reports/checkpoint-step6000 chứa receipts/inference/API outputs, ảnh mẫu ở output/DACN-DATN/example-inputs. Các mục thiếuartifact ngày07 dưới đây chỉ là lịch sử, đã được giải quyết; không tự làm lại smoke/training hoặc commit/push.
+
+## Audit model — bổ sung 2026-11-12
+
+Đã kiểm read-only checkpoint6000 trên56trainrecords cố định (28VI/28EN,8mỗiintent), seed42: exact0/56, zone36.90%, STOP0/8; cùngpanelOFFbaselineexact21.43%/zone53.57%. Adapter loaded matchdisk0error, normalization/inverse0error, factorytrain-vsrawcamera/state/action/task0error; input-label contradictions0. Cacheoff/FP32/analyticpadding không cứu3mẫu kiểm. Cùng STOP scene seed0→zeros, seed42→[0,2,0], seed43→[1,2,1]; noise sensitivity mạnh, model chưa fitpolicy kể cả train. Không chốt LR/rank/steps là nguyên nhân duy nhất khi chưa có experiment cô lập. Không optimizer/backward/weights update trongaudit, không tune test/seed. Bước tiếp theo cần microfit4–8cases và kiểmgradient/prediction trước runlớn; chưa thực hiện. Report **agri-soybean-vla/MODEL_AUDIT_STEP6000.md**, rawJSON/scripts/logs reports/model-audit/. Deployguide vẫn là DEPLOY_STEP6000.md; browserdataset8765 đang phục vụ5040records.
+
+## Lịch sử máy GPU mới — kiểm tra bước 7 (2026-11-07)
+
+Checkout hiện tại `/home/hanhpham/agriVLA`, branch `feat/compose-dataset`, HEAD lúc bắt đầu `1bacaf4`. GPU NVIDIA T1200 Laptop 4096 MiB đã thấy bằng `/usr/lib/wsl/lib/nvidia-smi` và PyTorch CUDA ngoài sandbox. Sandbox chặn GPU/NVML; CUDA=False trong sandbox không có nghĩa máy thiếu GPU. Đã dựng env riêng bằng setup.sh của module, không sửa env/demo/vendor cũ.
+
+**Bước 7 đang bị chặn bởi bản bàn giao chưa có:** checkout chỉ có source/config/tests/docs; chưa có data/raw/source reports/splits/v0 parent/wording_v1 JSONL+LeRobot, model cache hoặc prepared bundle. `validate-revision` fail vì thiếu parent lock. Cần đường dẫn `agri-soybean-step6.tar` + `.sha256` + `.manifest.json` để verify/extract vào thư mục mới theo GPU_HANDOFF.md. Không tái sinh dataset hoặc dùng fixtures/v0 thay bản hiện hành. Kết quả bước0–6 bên dưới là lịch sử máy trước, chưa tái kiểm ở máy GPU này. Chưa model backward/optimizer/smoke/VRAM/ETA/save-reload-resume/overfit; không chứng nhận fit4GB. Tiến độ/bằng chứng máy mới xem mục bước7 của AGRIVLA_IMPLEMENTATION_STATUS.md.
+
+## Hiện hành — bàn giao từ máy CPU (2026-11-06)
 
 **Bước6 đã PASS_CPU**, chưa optimizer training hoặc chứng nhận4GB. Người dùng xác nhận máy này không có NVIDIA và đây là bước cuối làm trên máy này. Handoff máy mới: **agri-soybean-vla/GPU_HANDOFF.md**; model/inference chi tiết: MODEL_TRAINING.md. Tiếp theo làm bước7, không làm lại0–6 hoặc chạy LIBERO/demo đèn.
 

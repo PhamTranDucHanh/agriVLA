@@ -102,13 +102,17 @@ class DemoRuntime:
             self.status = "error"
 
     def status_payload(self):
+        if (self.checkpoint / 'small_experiment.json').is_file():
+            quality = 'Model chẩn đoán train tập nhỏ; chưa đánh giá trên validation/test của toàn dataset.'
+        elif self.checkpoint == DEFAULT_CHECKPOINT.resolve():
+            quality = 'Checkpoint step 6000 chạy được nhưng chưa đạt baseline; kết quả chỉ dùng để quan sát mô hình.'
+        else:
+            quality = 'Chất lượng checkpoint này chưa được xác minh trong giao diện.'
         result = {
             "status": self.status,
             "device": self.device,
             "checkpoint": str(self.checkpoint),
-            "quality_warning": (
-                "Checkpoint step 6000 chạy được nhưng chưa đạt baseline; kết quả chỉ dùng để quan sát mô hình."
-            ),
+            "quality_warning": quality,
             "state_semantics": "Ba van đầu vào luôn là [0,0,0], giống dữ liệu training.",
         }
         if self.error:
@@ -199,6 +203,9 @@ def handler_for(runtime: DemoRuntime):
             path = urlsplit(self.path).path
             if path == "/api/status":
                 return self.send_json(200, runtime.status_payload())
+            if path == "/api/examples":
+                example_file = project_root() / 'reports/small-cases/demo-examples/web-examples.json'
+                return self.send_json(200, json.loads(example_file.read_text()) if example_file.is_file() else {'examples': []})
             assets = {
                 "/": ("demo.html", "text/html; charset=utf-8"),
                 "/demo.css": ("demo.css", "text/css; charset=utf-8"),

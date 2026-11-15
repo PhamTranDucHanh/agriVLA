@@ -20,6 +20,13 @@
 
   <main>
     <aside id="qualityWarning" class="notice warning" hidden></aside>
+    <p id="modelIdentity" class="fine-print"></p>
+    <section class="panel">
+      <h2>Thử model mới với mẫu có đáp án</h2>
+      <p>Mẫu từ train dùng chẩn đoán; chọn mẫu để tự nạp đủ ba ảnh và câu nói.</p>
+      <select id="samplePicker"><option value="">Chọn mẫu train…</option></select>
+      <p id="expectedTarget">Bạn cũng có thể tự upload ảnh và nhập câu bên dưới.</p>
+    </section>
     <section class="panel">
       <div class="section-title">
         <div><span class="step">01</span><h2>Ảnh ba khu vực</h2></div>
@@ -54,6 +61,7 @@
       </div>
       <div id="valveResults" class="valves"></div>
       <div class="raw-result">
+        <p id="targetComparison"></p>
         <div><span>Continuous action</span><code id="continuousAction"></code></div>
         <div><span>Quantized action</span><code id="quantizedAction"></code></div>
         <div><span>Input valve state</span><code>[0, 0, 0]</code></div>

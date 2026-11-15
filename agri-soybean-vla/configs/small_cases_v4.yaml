@@ -1,0 +1,17 @@
+# Native sampler option, selected using TRAIN microfit diagnostics only.
+# No changes to forward loss, labels, schema, normalization, camera or split.
+version: agri_small_cases_v4
+seed: 42
+screen_seeds: [0, 42]
+certificate_seeds: [0, 1, 2, 3, 42]
+warmup_steps: 20
+max_steps: 1000
+evaluate_at: [100, 300, 600, 1000]
+profiles:
+  r8_b4_n1_lr3e4: {rank: 8, alpha: 8, lr: 0.0003, full_projections: false, batch_size: 4, num_steps: 1}
+  r8_b4_n2_lr3e4: {rank: 8, alpha: 8, lr: 0.0003, full_projections: false, batch_size: 4, num_steps: 2}
+  r8_b4_n4_lr3e4: {rank: 8, alpha: 8, lr: 0.0003, full_projections: false, batch_size: 4, num_steps: 4}
+gates:
+  micro8: {exact: 1.0, zone: 1.0, stop: 1.0}
+  cases32: {exact: 1.0, zone: 1.0, stop: 1.0}
+  cases60: {exact: 1.0, zone: 1.0, stop: 1.0}
