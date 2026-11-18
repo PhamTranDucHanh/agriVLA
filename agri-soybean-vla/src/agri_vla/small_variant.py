@@ -32,7 +32,8 @@ def run(source_run, checkpoints, config, profile_name, reference, output):
     expected_source = source_run / 'checkpoints' / f'{final_step:06d}' / 'pretrained_model'
     require(measurement['status'] == 'complete' and Path(measurement['checkpoint']) == expected_source
             and measurement['stage'] == source_exp['stage'], 'Wrong sampling measurement')
-    panel = measurement['results'][str(target.get('num_steps', 10))]
+    parameter = measurement.get('parameter','num_steps')
+    panel = measurement['results'][str(target.get(parameter, 10 if parameter=='num_steps' else 1))]
     require(panel['batch_size'] == 1 and panel['seeds'] == spec['certificate_seeds'], 'Wrong measured seed/batch protocol')
     require(passes([m['overall'] for m in panel['by_seed'].values()], spec['gates'][source_exp['stage']]), 'Sampling candidate has not passed every seed')
     exp = deepcopy(source_exp)

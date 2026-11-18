@@ -1,5 +1,7 @@
 # Chẩn đoán học trên tập nhỏ — 2026-11-12 đến 2026-11-15
 
+**Cập nhật16/11:** xem [báo cáo hiện hành](OPTIMIZATION_2026-11-16.md). TRAIN60 cao không đủ: VAL112 còn kém OFF; chưa full-ready. Runner mới yêu cầu thêm `--validation-evidence` hợp lệ trước execute. Các kết quả/lệnh15/11 bên dưới là lịch sử.
+
 **Lịch sử tiến trình ngày15:** candidate r8/alpha8, batch4, LR3e-4, native Euler2bước đã đạt40/40 predictions ở micro8 (5noise seeds); đang train panel60 đủ7intents. Chưa gọi config đạt toàn bộ trước khi panel60 pass và reload/resource checks tương ứng hoàn tất. Full train3600 và val/test mới chưa chạy.
 
 **Hiện hành: tạm dừng theo yêu cầu người dùng, web model300 đang chạy.** Không chạy thêm training; fresh-process full60/five-seed evaluation đã dừng theo yêu cầu và chưa hoàn tất. Screen cuối80%/98,33%, không đạt100%. Web8presets gồm7case VI đúng và1case EN còn sai đã kiểm API. Hướng dẫn: DEPLOY_IMPROVED.md; báo cáo web-improved-check.json.

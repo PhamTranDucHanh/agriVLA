@@ -1,0 +1,42 @@
+{
+  "version": "initialization_ablation_v1",
+  "training_seed": 42,
+  "stage": "cases280",
+  "evaluation_stage_during_training": "cases60",
+  "experiment_config": "small_cases_v9.yaml",
+  "profile": "r8_wide_b4_n1_t1_lr1e4",
+  "new_runs_maximum": 3,
+  "optimizer_updates_per_run_maximum": 300,
+  "new_artifact_bytes_maximum": 1073741824,
+  "A": "fresh expert-wide LoRA on pinned pretrained base",
+  "B": "weights-only endpoint60 checkpoint600; fresh optimizer at step0",
+  "historical_B_candidate": "outputs/small-cases/pilot280-resume100-20261116/checkpoints/000300/pretrained_model",
+  "historical_B_reuse_requires": ["same panel/profile/schema/stats/base/tokenizer", "same optimizer schedule and zero-start trajectory", "native full-state continuation100to300", "same all300 episode batches", "same recorded RNG fingerprints", "finite updates and valid checkpoint hashes"],
+  "evaluation": {
+    "milestones": [100, 300],
+    "training_records": 280,
+    "validation_records": 112,
+    "validation_selector_version": 2,
+    "screen_noise_seeds": [42],
+    "final_noise_seeds": [0, 1, 2, 3, 42],
+    "report": ["exact", "zone", "macro_intent_exact", "STOP", "false_watering", "continuous_MAE", "old60_new220", "VI_EN", "seen_unseen"]
+  },
+  "initialization_selection_before_data_ablation": {
+    "minimum_mean_validation_exact_margin": 0.05,
+    "minimum_mean_validation_zone_margin": 0.02,
+    "minimum_seeds_with_positive_validation_exact_margin": 4,
+    "scene_cluster_bootstrap_conditional_95pct_lower_margin_positive": true,
+    "STOP_and_false_watering_must_not_regress_on_average": true,
+    "train280_exact_max_drop": 0.02,
+    "old60_exact_max_drop": 0.10,
+    "new220_exact_must_not_drop": true,
+    "if_inconclusive": "stop data-ablation stage; report limitations and unused budget"
+  },
+  "limits": {
+    "test_opened": false,
+    "full_train": false,
+    "commit_push": false,
+    "old_models_deleted": false,
+    "OOM": "stop and report; preserve all three cameras"
+  }
+}

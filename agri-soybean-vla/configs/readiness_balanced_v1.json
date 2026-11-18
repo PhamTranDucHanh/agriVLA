@@ -1,0 +1,9 @@
+{
+  "version": "balanced_v1",
+  "declared_before_pilot280_validation": true,
+  "capacity_train60_each_seed": {"exact": 0.95, "zone": 0.98, "stop": 1.0},
+  "validation_probe": {"records": 112, "selection_version": 2, "exact_margin_over_always_off": 0.05, "zone_margin_over_always_off": 0.02, "stop": 1.0},
+  "production_goal_after_full": {"exact": 0.90, "zone": 0.95, "stop": 1.0},
+  "never_use_test_for_tuning": true,
+  "small_train_fit_is_not_generalization": true
+}

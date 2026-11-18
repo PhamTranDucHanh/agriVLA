@@ -76,6 +76,9 @@ def run(checkpoint, control, output, *, restore_loader_continuation=False):
             'Proof requires deterministic image loading, no augmentation or workers')
     require(step_info['num_processes'] == 1 and step_info['batch_size'] == cfg.batch_size, 'Batch/world-size drift')
     require(cfg.dataset.episodes == exp['episodes'], 'Training panel drift')
+    from .dataset import read_jsonl
+    augmentation_records = {x['episode_index']: x['source_record'] for x in
+                            read_jsonl(root / c['dataset_root'] / 'train/sample_metadata.jsonl')}
     require(cfg.scheduler.type == 'constant_with_warmup', 'Only tested constant schedule supported')
     cfg.output_dir = output; cfg.steps = start + 1; cfg.resume = True
     cfg.save_checkpoint = False; cfg.log_freq = 1
@@ -124,6 +127,8 @@ def run(checkpoint, control, output, *, restore_loader_continuation=False):
         observed = {'episodes': batch['episode_index'].detach().cpu().tolist(), 'rng_before': rng_fingerprint()}
         state['batch_shapes'] = {k: list(v.shape) for k, v in batch.items() if isinstance(v, torch.Tensor)}
         state['real_token_counts'] = batch['observation.language.attention_mask'].sum(-1).detach().cpu().tolist()
+        from .augmentation import mix_override_images
+        state['augmentation'] = mix_override_images(batch, augmentation_records, step=start + 1, profile=exp['profile'])
         result = originals['update_policy'](*args, **kwargs)
         tracker = result[0]
         optimizer = args[3] if len(args) > 3 else kwargs['optimizer']

@@ -16,16 +16,39 @@ import threading
 import time
 import traceback
 
-from .dataset import require, read_json, new_output
+from .dataset import require, read_json, read_jsonl, new_output
 from .preflight import project_root
 from .training import (load_training_config, train_config, runtime, verify_train_export,
                        write_json, file_sha, attach_checkpoint_contract)
 from .small_cases import load_experiment, expert_target_modules, compatible_inference_variant
 
 
-def check_evidence(path, checkpoint):
+REPORT_SERIALIZATION_PREDECESSOR = '09f9e2699316d4bf3ad87a8c7860725e07ee437ca0d2332905caaa0aa86ab1ad'
+
+
+def reportable_state(state):
+    """Runtime processors are used for checkpointing, never JSON telemetry."""
+    result = {key: value for key, value in state.items() if key not in ('pre', 'post')}
+    json.dumps(result, allow_nan=False)  # Fail before opening a report file.
+    return result
+
+
+def check_resume_runner(meta, original_source):
+    current = file_sha(Path(__file__))
+    if meta['runner_sha256'] == current:
+        return
+    require(meta.get('research_run') is True
+            and meta['runner_sha256'] == REPORT_SERIALIZATION_PREDECESSOR
+            and Path(original_source).is_file()
+            and file_sha(Path(original_source)) == REPORT_SERIALIZATION_PREDECESSOR,
+            'Full trainer source changed since save; only audited JSON-report fix predecessor is compatible')
+
+
+def check_evidence(path, checkpoint, policy_path=None):
     d = read_json(path)
     require(Path(d['checkpoint']).resolve() == checkpoint, 'Evidence belongs to another checkpoint')
+    require(d.get('adapter_sha256') == file_sha(checkpoint / 'adapter_model.safetensors'),
+            'Capacity evidence does not pin these adapter weights; rerun fresh inference')
     require(d['stage'] == 'cases60' and d['batch_size'] == 1 and d['seeds'] == [0, 1, 2, 3, 42]
             and d['records_per_seed'] == 60 and len(d['predictions']) == 300, 'Need complete TRAIN60/five-seed/B1 evidence')
     from .evaluation import metrics
@@ -38,10 +61,17 @@ def check_evidence(path, checkpoint):
     require(all(p['sample_id'] in targets and p['target_action'] == targets[p['sample_id']] for p in d['predictions'])
             and all(sum(p['seed'] == s for p in d['predictions']) == 60 for s in d['seeds']), 'Evidence sample/target/seed mapping differs')
     scores = [metrics([p for p in d['predictions'] if p['seed'] == seed])['overall'] for seed in d['seeds']]
-    require(passes(scores, {'exact': 1., 'zone': 1., 'stop': 1.}), 'TRAIN60 has not passed every noise seed')
+    gate = {'exact': 1., 'zone': 1., 'stop': 1.}
+    identity = None
+    if policy_path:
+        from .readiness import load_policy
+        policy, identity = load_policy(policy_path)
+        gate = policy['capacity_train60_each_seed']
+    require(passes(scores, gate), 'TRAIN60 has not passed the declared gate at every noise seed')
     comparison = d.get('reload_comparison', d.get('comparison_with_fresh_diagnostic'))
     require(comparison and comparison['passed'], 'Evidence lacks a passing save/fresh-load comparison')
     return {'file': str(path), 'sha256': file_sha(path), 'train60_every_seed_passed': True,
+            'gate': gate, 'policy': identity,
             'scope': 'finite TRAIN panel only; no full-data generalization claim'}
 
 
@@ -53,7 +83,7 @@ def resolve(config, profile_name, output, *, steps=1000, init_checkpoint=None, r
     from lerobot.optim.schedulers import ConstantWithWarmupSchedulerConfig
     c = load_training_config(root / 'configs/training_v0.yaml')
     spec = load_experiment(config); profile = spec['profiles'][profile_name]
-    require(profile.get('time_sampling', 'upstream_beta') == 'upstream_beta', 'Full runner supports native Beta-time loss only')
+    require(profile.get('time_sampling', 'upstream_beta') in ('upstream_beta', 'endpoint_t1'), 'Unknown training timestep profile')
     require(profile['rank'] == profile['alpha'] == 8 and not profile['full_projections'], 'Deploy-compatible r8 LoRA required')
     require(type(steps) is int and 1 <= steps <= 12000, 'Use 1..12000 cumulative steps; validate between phases')
     require(bool(init_checkpoint) != bool(resume_from), 'Choose weights-only initialization or full-state resume')
@@ -75,6 +105,10 @@ def resolve(config, profile_name, output, *, steps=1000, init_checkpoint=None, r
         resume_from = Path(resume_from).resolve()
         meta = read_json(resume_from / 'pretrained_model/agri_full_candidate.json')
         require(meta['profile'] == profile and meta['config_sha256'] == spec['_sha256'], 'Full resume profile drift')
+        check_resume_runner(meta, root / 'reports/full-candidate' / resume_from.parents[1].name / 'runner-source.py')
+        if profile.get('training_augmentation'):
+            from . import augmentation
+            require(meta['augmentation_source_sha256'] == file_sha(Path(augmentation.__file__)), 'Full augmentation source drift')
         step_info = read_json(resume_from / 'training_state/training_step.json'); start = step_info['step']
         require(type(start) is int and 0 < start < steps and step_info['batch_size'] == cfg.batch_size
                 and step_info['num_processes'] == 1, 'Invalid resume step/batch/world size')
@@ -103,33 +137,56 @@ def resolve(config, profile_name, output, *, steps=1000, init_checkpoint=None, r
 
 
 def run(args):
+    research = bool(getattr(args, 'research_run', False))
     c, spec, profile, cfg, model, start = resolve(args.experiment_config, args.profile, args.output,
                                                steps=args.steps, init_checkpoint=args.init_checkpoint, resume_from=args.resume_from)
     # Dry run checks native config and local contracts without loading model/CUDA.
     runtime(c, device='cuda' if args.execute else 'cpu')
-    if args.resume_from:
+    if research:
+        if args.resume_from:
+            require(read_json(model / 'agri_full_candidate.json').get('research_run') is True,
+                    'Research resume requires a research checkpoint')
+        evidence = validation = None
+    elif args.resume_from:
         meta = read_json(model / 'agri_full_candidate.json')
         evidence = meta['small_case_evidence']
         require(file_sha(Path(evidence['file'])) == evidence['sha256'], 'Original small-case evidence changed')
-        evidence = check_evidence(Path(evidence['file']), Path(read_json(evidence['file'])['checkpoint']).resolve())
+        policy = evidence.get('policy')
+        if policy:
+            require(file_sha(Path(policy['file'])) == policy['sha256'], 'Readiness policy changed')
+        evidence = check_evidence(Path(evidence['file']), Path(read_json(Path(evidence['file']))['checkpoint']).resolve(),
+                                  Path(policy['file']) if policy else None)
+        validation = meta['validation_evidence']
+        require(file_sha(Path(validation['file'])) == validation['sha256'], 'Original VAL evidence changed')
+        from .readiness import check_validation_evidence
+        validation = check_validation_evidence(Path(validation['file']), Path(read_json(Path(validation['file']))['checkpoint']),
+                                                validation['policy']['file'])
     else:
-        evidence = check_evidence(args.evidence, model) if args.evidence else None
+        evidence = check_evidence(args.evidence, model, args.readiness_policy) if args.evidence else None
+        from .readiness import check_validation_evidence
+        validation = check_validation_evidence(args.validation_evidence, model, args.readiness_policy) if args.validation_evidence else None
     plan = {'status': 'dry_run', 'scope': 'full TRAIN3600 only; validation is a separate process between phases',
             'profile': profile, 'config_file': Path(args.experiment_config).name, 'config_sha256': spec['_sha256'],
             'initialization': {'native_full_state_resume' if args.resume_from else 'weights_only_optimizer_reset': str(model)},
-            'small_case_evidence': evidence, 'resolved_config': cfg.to_dict(), 'start_step': start,
-            'full_execution_gate_passed': evidence is not None,
+            'small_case_evidence': evidence, 'validation_evidence': validation,
+            'resolved_config': cfg.to_dict(), 'start_step': start,
+            'full_execution_gate_passed': evidence is not None and validation is not None,
+            'research_run': research,
+            'quality_qualification': 'not_qualified_user_requested_research' if research else 'evidence_gated',
             'final_step': args.steps, 'planned_new_optimizer_updates': args.steps - start,
             'estimated_train_epochs_this_phase': (args.steps - start) * cfg.batch_size / 3600,
             'optimizer_steps_performed': 0, 'runner_sha256': file_sha(Path(__file__))}
+    from . import augmentation
+    plan['augmentation_source_sha256'] = file_sha(Path(augmentation.__file__)) if profile.get('training_augmentation') else None
     if not args.execute:
         print(json.dumps(plan, ensure_ascii=False, indent=2), flush=True); return plan
-    require(evidence is not None, '--execute requires passing TRAIN60 + fresh-reload evidence; inspect small-case reports first')
+    require(research or (evidence is not None and validation is not None),
+            '--execute requires passing TRAIN60 + fresh-reload + fixed VAL sanity evidence')
     from accelerate import Accelerator
     from accelerate.utils import GradScalerKwargs
     from lerobot.scripts import lerobot_train as upstream
     from lerobot.common.train_utils import save_training_state
-    from .small_train import load_checkpoint, parameter_audit
+    from .small_train import load_checkpoint, parameter_audit, configure_training_time, rng_fingerprint
     from .small_resume import continued_cycle, compare_tensor_files
     import torch
     report_dir = project_root() / 'reports/full-candidate' / cfg.output_dir.name
@@ -138,8 +195,10 @@ def run(args):
     write_json(report_dir / 'plan.json', plan)
     originals = {n: getattr(upstream, n) for n in ('make_policy', 'make_pre_post_processors', 'make_train_eval_datasets',
                                                   'update_policy', 'save_checkpoint', 'load_training_state', 'cycle')}
-    state = {'step': start, 'train_peak_allocated': 0, 'train_peak_reserved': 0, 'update_seconds_sum': 0.}
+    state = {'step': start, 'train_peak_allocated': 0, 'train_peak_reserved': 0, 'update_seconds_sum': 0., 'data_seconds_sum':0.}
     initial_weights = {}
+    augmentation_records = {x['episode_index']: x['source_record'] for x in
+                            read_jsonl(project_root() / c['dataset_root'] / 'train/sample_metadata.jsonl')}
     telemetry, stop_poll = [], threading.Event()
     def poll_gpu():
         while not stop_poll.is_set():
@@ -157,6 +216,7 @@ def run(args):
     def make_policy(*a, **kw):
         policy, state['pre'], state['post'] = load_checkpoint(c, model)
         policy.config.use_peft = True
+        state['training_time_sampling'] = configure_training_time(policy, profile)
         write_json(report_dir / 'parameters.json', parameter_audit(policy))
         initial_weights.update({n: p.detach().cpu().clone() for n, p in policy.named_parameters() if p.requires_grad})
         return policy
@@ -176,7 +236,9 @@ def run(args):
         cp = Path(kw['checkpoint_dir']); folder = cp / 'pretrained_model'
         write_json(cp / 'training_state/amp_scaler_state.json', accelerator.scaler.state_dict())
         write_json(folder / 'agri_full_candidate.json', {k: plan[k] for k in ('profile', 'config_file', 'config_sha256',
-                                                                          'small_case_evidence', 'initialization', 'runner_sha256')})
+                                                                          'small_case_evidence', 'validation_evidence',
+                                                                          'augmentation_source_sha256',
+                                                                          'initialization', 'runner_sha256', 'research_run')})
         attach_checkpoint_contract(project_root() / c['bundle'], folder)
         return result
 
@@ -202,12 +264,19 @@ def run(args):
         yield from continued_cycle(loader, originals['cycle'], step=start, records=3600, batch_size=cfg.batch_size)
 
     def update(*a, **kw):
+        next_step=state['step']+1
+        rng_before=rng_fingerprint() if next_step in (start+1,99,100) else None
         torch.cuda.reset_peak_memory_stats()
+        mixed = augmentation.mix_override_images(a[2], augmentation_records, step=next_step, profile=profile)
+        if mixed:
+            with (report_dir / 'augmentation.jsonl').open('a') as stream:
+                stream.write(json.dumps(mixed) + '\n')
         updated = originals['update_policy'](*a, **kw); tracker = updated[0]
         require(math.isfinite(tracker.loss.val) and math.isfinite(tracker.grad_norm.val)
                 and not getattr(a[3], 'step_was_skipped', False), 'Nonfinite/skipped full-train update')
         state['step'] += 1
         state['update_seconds_sum'] += float(tracker.update_s.val)
+        state['data_seconds_sum'] += float(tracker.dataloading_s.val)
         if state['step'] == start + 1:
             batch = a[2]
             write_json(report_dir / 'first-batch.json', {
@@ -218,7 +287,13 @@ def run(args):
         state['train_peak_reserved'] = max(state['train_peak_reserved'], torch.cuda.max_memory_reserved())
         with (report_dir / 'updates.jsonl').open('a') as stream:
             stream.write(json.dumps({'step': state['step'], 'loss': tracker.loss.val, 'grad_norm': tracker.grad_norm.val,
-                                     'lr': tracker.lr.val, 'seconds': tracker.update_s.val}) + '\n')
+                                     'lr': tracker.lr.val, 'seconds': tracker.update_s.val,
+                                     'data_seconds':tracker.dataloading_s.val,
+                                     'episodes':a[2]['episode_index'].detach().cpu().tolist(), 'rng_before':rng_before}) + '\n')
+        if cfg.steps == 100 and state['step'] == 99:
+            save(checkpoint_dir=cfg.output_dir/'checkpoints/000099',step=99,cfg=cfg,
+                 policy=kw['accelerator'].unwrap_model(a[1]),optimizer=a[3],scheduler=kw.get('lr_scheduler'),
+                 preprocessor=state['pre'],postprocessor=state['post'],num_processes=1,batch_size=cfg.batch_size)
         return updated
 
     previous = sys.argv; failure = None; wall_start = time.perf_counter()
@@ -255,7 +330,7 @@ def run(args):
         key, _, value = line.partition(':')
         if key in ('VmRSS', 'VmHWM', 'VmSwap'):
             process_memory[key + '_bytes'] = int(value.strip().split()[0]) * 1024
-    result = {**state, 'status': 'error' if failure else 'completed', 'failure': failure,
+    result = {**reportable_state(state), 'status': 'error' if failure else 'completed', 'failure': failure,
               'optimizer_steps_performed': state['step'] - start, 'validation_selection_performed': False,
               'wall_seconds_including_loading_and_saves': time.perf_counter() - wall_start,
               'process_memory': process_memory, 'gpu_samples': telemetry,
@@ -274,9 +349,12 @@ def main():
     p.add_argument('--init-checkpoint', type=Path)
     p.add_argument('--resume-from', type=Path)
     p.add_argument('--evidence', type=Path)
+    p.add_argument('--validation-evidence', type=Path)
+    p.add_argument('--readiness-policy', type=Path, help='Explicit versioned capacity gate; default remains strict100%%')
     p.add_argument('--steps', type=int, default=1000)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--execute', action='store_true')
+    p.add_argument('--research-run', action='store_true', help='Explicit unqualified research training; readiness gates remain unmet')
     run(p.parse_args())
 
 

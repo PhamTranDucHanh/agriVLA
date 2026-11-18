@@ -102,6 +102,10 @@ def load_model(c, bundle, *, checkpoint=None, device="cpu"):
         require(all(torch.allclose(saved_stats[f"action.{key}"].cpu(), torch.tensor(wanted[key]), atol=1e-7) for key in ("mean", "std")), "Saved processor has non-train action stats")
         require(str(normalizer.norm_map[next(k for k in normalizer.norm_map if str(k.value) == "STATE")].value) == "IDENTITY" if kind is NormalizerProcessorStep else True, "State must use IDENTITY")
     policy.eval()
+    from .inference_sampling import configure_inference
+    metadata = adapter / 'small_experiment.json'
+    if not metadata.exists():metadata=adapter/'agri_full_candidate.json'
+    if metadata.exists():configure_inference(policy,read_json(metadata)['profile'])
     return policy, pre, post, params
 
 
@@ -238,27 +242,32 @@ def fixed_validation_selection(c, count=56):
     for item in items:
         row = item["source_record"]
         pairs[(row["translation_pair_id"], row["wording_partition"])].append((item["episode_index"], row))
-    strata = defaultdict(list)
+    # Hierarchical round-robin: intent first, then wording, then target.
+    # Flat strata sorting can exhaust a small budget before reaching STOP/WATER.
+    strata = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for key, pair in pairs.items():
-        require(len(pair) == 2 and {r["language"] for _, r in pair} == {"vi", "en"}, "validation pair incomplete")
         row = pair[0][1]
-        strata[(row["intent"], row["wording_partition"], tuple(row["target_action"]))].append((key, pair))
-    for key in strata:
-        strata[key].sort(key=lambda x: __import__("hashlib").sha256(f"{c['seed']}:{x[0]}".encode()).hexdigest())
-    selected, positions = [], {key: 0 for key in strata}
-    keys = sorted(strata)
-    while len(selected) < count // 2:
-        progressed = False
-        for key in keys:
-            pos = positions[key]
-            if pos < len(strata[key]) and len(selected) < count // 2:
-                selected.append(strata[key][pos])
-                positions[key] += 1
-                progressed = True
-        require(progressed, "not enough validation pairs")
+        strata[row['intent']][row['wording_partition']][tuple(row['target_action'])].append((key,pair))
+    def interleave(groups):
+        positions={k:0 for k in groups}; result=[]
+        while any(positions[k]<len(groups[k]) for k in groups):
+            for k in sorted(groups):
+                if positions[k]<len(groups[k]):
+                    result.append(groups[k][positions[k]]);positions[k]+=1
+        return result
+    intent_groups={}
+    for intent, wordings in strata.items():
+        wording_groups={}
+        for wording, targets in wordings.items():
+            for target in targets:
+                targets[target].sort(key=lambda x: __import__('hashlib').sha256(f"{c['seed']}:{x[0]}".encode()).hexdigest())
+            wording_groups[wording]=interleave(targets)
+        intent_groups[intent]=interleave(wording_groups)
+    selected=interleave(intent_groups)[:count//2]
+    require(len(selected)==count//2, 'not enough validation pairs')
     episodes = sorted(ep for _, pair in selected for ep, _ in pair)
     require(len(episodes) == count, "validation selection size differs")
-    return {"version": 1, "seed": c["seed"], "split": "val", "records": count, "episodes": episodes,
+    return {"version": 2, "seed": c["seed"], "split": "val", "records": count, "episodes": episodes,
             "sample_ids": [items[i]["source_record"]["sample_id"] for i in episodes]}
 
 

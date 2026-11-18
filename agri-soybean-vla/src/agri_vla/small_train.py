@@ -66,6 +66,7 @@ def configure_training_time(policy, profile):
         audit['maximum'] = hi if audit['maximum'] is None else max(audit['maximum'], hi)
         return time
     core.sample_time = sample_time
+    core._agri_time_sampling_audit = audit
     return audit
 
 
@@ -119,7 +120,8 @@ class PanelPassed(Exception):
     pass
 
 
-def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume_checkpoint=None, experiment_config=None):
+def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume_checkpoint=None, experiment_config=None, evaluate_stage=None):
+    run_wall_start = time.perf_counter()
     import torch
     from accelerate import Accelerator
     from accelerate.utils import GradScalerKwargs
@@ -137,6 +139,10 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
     profile = spec['profiles'][profile_name]
     require(not (init_checkpoint and resume_checkpoint), 'Choose weights-only initialization or native full-state resume')
     selected = selection(c, stage)
+    augmentation_records = {x['episode_index']: x['source_record'] for x in selected['items']}
+    eval_stage=evaluate_stage or stage
+    eval_selected=selection(c,eval_stage)
+    require(set(eval_selected['episodes'])<=set(selected['episodes']), 'Evaluation panel must nest in training panel')
     bundle = root / c['bundle']
     check_bundle(c, bundle); verify_train_export(c, bundle)
     runtime(c, device='cuda')
@@ -183,7 +189,7 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
             resume_reference = next((json.loads(line) for line in source_rows.read_text().splitlines()
                                      if json.loads(line)['step'] == start_step + 1), None)
     experiment = {'version': spec['version'], 'profile_name': profile_name, 'profile': profile,
-                  'stage': stage, 'selection_sha256': selected['source_metadata_sha256'],
+                  'stage': stage, 'evaluation_stage':eval_stage, 'selection_sha256': selected['source_metadata_sha256'],
                   'episodes': selected['episodes'], 'coverage': selected['coverage'],
                   'source_config_sha256': c['_sha256'], 'experiment_config_sha256': spec['_sha256'],
                   'experiment_config_file': spec_path.name, 'actual_batch_size': cfg.batch_size,
@@ -192,11 +198,14 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
                   'inference': {'sampler': 'native Euler', 'num_steps': cfg.policy.num_steps},
                   'training_time_sampling': profile.get('time_sampling', 'upstream_beta'),
                   'peft_target_modules': cfg.peft.target_modules,
-                  'gate': spec['gates'][stage], 'screen_seeds': spec['screen_seeds'],
+                  'gate': spec['gates'][eval_stage], 'screen_seeds': spec['screen_seeds'],
                   'certificate_seeds': spec['certificate_seeds'], 'max_steps': max_steps,
                   'initialization': 'fresh LoRA from pinned base', 'test_or_validation_used': False,
                   'amp': {'init_scale': 1024., 'growth_interval': 2000}, 'seed': c['seed']}
     experiment['memory_measurement'] = 'torch peak reset before each update; eval peaks reported separately; NVML entire run'
+    if profile.get('training_augmentation'):
+        from . import augmentation
+        experiment['augmentation_source_sha256'] = file_sha(Path(augmentation.__file__))
     if resume_checkpoint:
         experiment['initialization'] = {'native_full_state_resume': str(resume_checkpoint),
                                         'start_step': start_step, 'optimizer_reset': False,
@@ -222,7 +231,8 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
                                                          'make_policy', 'update_policy', 'save_checkpoint', 'load_training_state', 'cycle')}
     state = {'step': start_step, 'dataset': None, 'pre': None, 'post': None, 'initial': None,
              'gradient_audits': [], 'evaluations': [], 'checkpoints': [], 'train_peak_allocated': 0,
-             'train_peak_reserved': 0, 'update_seconds': [], 'passed': False, 'time_sampling_audit': None, 'scope_expansion': None}
+             'train_peak_reserved': 0, 'update_seconds': [], 'data_seconds_sum': 0., 'passed': False,
+             'time_sampling_audit': None, 'scope_expansion': None}
     telemetry, stop_poll = [], threading.Event()
     def poll_gpu():
         while not stop_poll.is_set():
@@ -240,7 +250,9 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
     def make_data(*args, **kwargs):
         ds, ev = original['make_train_eval_datasets'](*args, **kwargs)
         require(ev is None and len(ds) == selected['records'], 'Wrong training subset')
-        state['dataset'] = ds
+        from torch.utils.data import Subset
+        wanted=set(eval_selected['episodes'])
+        state['dataset'] = Subset(ds,[i for i,ep in enumerate(selected['episodes']) if ep in wanted])
         return ds, ev
 
     def make_processors(*args, **kwargs):
@@ -349,6 +361,11 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
             hook = opt.register_step_pre_hook(before_step)
         try:
             torch.cuda.reset_peak_memory_stats()
+            from .augmentation import mix_override_images
+            mixed = mix_override_images(batch, augmentation_records, step=probe_step, profile=profile)
+            if mixed:
+                with (report_dir / 'augmentation.jsonl').open('a') as stream:
+                    stream.write(json.dumps(mixed) + '\n')
             updated = original['update_policy'](*args, **kwargs)
         finally:
             if hook is not None:
@@ -369,27 +386,28 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
         state['train_peak_allocated'] = max(state['train_peak_allocated'], torch.cuda.max_memory_allocated())
         state['train_peak_reserved'] = max(state['train_peak_reserved'], torch.cuda.max_memory_reserved())
         state['update_seconds'].append(float(tracker.update_s.val))
+        state['data_seconds_sum'] += float(tracker.dataloading_s.val)
         with (report_dir / 'updates.jsonl').open('a') as stream:
             stream.write(json.dumps({'step': state['step'], 'loss': tracker.loss.val, 'grad_norm': tracker.grad_norm.val,
                                      'lr': tracker.lr.val, 'seconds': tracker.update_s.val,
                                      'episodes': episodes, 'rng_before': before_rng}) + '\n')
         if state['step'] in spec['evaluate_at'] or state['step'] == max_steps:
             torch.cuda.reset_peak_memory_stats()
-            screen = panel_evaluate(unwrapped, state['pre'], state['post'], state['dataset'], selected,
+            screen = panel_evaluate(unwrapped, state['pre'], state['post'], state['dataset'], eval_selected,
                                     spec['screen_seeds'], batch_size=4)
             screen_scores = [x['overall'] for x in screen['by_seed'].values()]
             event = {'step': state['step'], 'screen': screen,
                      'screen_peak_allocated': torch.cuda.max_memory_allocated(),
                      'screen_peak_reserved': torch.cuda.max_memory_reserved()}
             print('SMALL_SCREEN', state['step'], {k: v['overall'] for k, v in screen['by_seed'].items()}, flush=True)
-            if passes(screen_scores, spec['gates'][stage]):
+            if passes(screen_scores, spec['gates'][eval_stage]):
                 torch.cuda.reset_peak_memory_stats()
-                certificate = panel_evaluate(unwrapped, state['pre'], state['post'], state['dataset'], selected,
+                certificate = panel_evaluate(unwrapped, state['pre'], state['post'], state['dataset'], eval_selected,
                                              spec['certificate_seeds'], batch_size=1)
                 event['certificate'] = certificate
                 event['certificate_peak_allocated'] = torch.cuda.max_memory_allocated()
                 event['certificate_peak_reserved'] = torch.cuda.max_memory_reserved()
-                state['passed'] = passes([x['overall'] for x in certificate['by_seed'].values()], spec['gates'][stage])
+                state['passed'] = passes([x['overall'] for x in certificate['by_seed'].values()], spec['gates'][eval_stage])
                 print('SMALL_CERTIFICATE', state['step'], state['passed'], flush=True)
             delta = {n: float((p.detach().cpu() - state['initial'][n]).square().sum()) for n, p in trainable.items()}
             require(all(bool(torch.isfinite(p).all()) for p in trainable.values()), 'Nonfinite weights')
@@ -445,6 +463,13 @@ def run(stage, profile_name, output, *, steps=None, init_checkpoint=None, resume
                'experiment': experiment, 'gpu_samples': telemetry, 'scope': 'TRAIN diagnostic only',
                'report_dir': str(report_dir), 'output': str(output),
                'start_step': start_step, 'optimizer_steps_performed': state['step'] - start_step}
+    result['data_seconds_sum'] = state['data_seconds_sum']
+    result['wall_seconds_including_setup_screens_saves'] = time.perf_counter() - run_wall_start
+    result['process_memory'] = {}
+    for line in Path('/proc/self/status').read_text().splitlines():
+        key, _, value = line.partition(':')
+        if key in ('VmRSS', 'VmHWM', 'VmSwap'):
+            result['process_memory'][key + '_bytes'] = int(value.strip().split()[0]) * 1024
     write_json(report_dir / 'result.json', result)
     print(json.dumps({k: result[k] for k in ('status', 'failure', 'step', 'passed', 'checkpoints', 'report_dir')}, indent=2), flush=True)
     return result
@@ -470,8 +495,11 @@ def load_checkpoint(c, checkpoint):
     runtime(c, device='cuda'); assets(c); check_bundle(c, bundle)
     exp = read_json(checkpoint / 'small_experiment.json')
     config_name = exp.get('experiment_config_file', 'small_cases_v1.yaml')
-    require(config_name in ('small_cases_v1.yaml', 'small_cases_v2.yaml', 'small_cases_v3.yaml', 'small_cases_v4.yaml', 'small_cases_v5.yaml', 'small_cases_v6.yaml'), 'Unknown experimental config file')
+    require(config_name in ('small_cases_v1.yaml', 'small_cases_v2.yaml', 'small_cases_v3.yaml', 'small_cases_v4.yaml', 'small_cases_v5.yaml', 'small_cases_v6.yaml', 'small_cases_v7.yaml', 'small_cases_v8.yaml', 'small_cases_v9.yaml', 'small_cases_v10.yaml'), 'Unknown experimental config file')
     spec = load_experiment(project_root() / 'configs' / config_name)
+    if exp['profile'].get('training_augmentation'):
+        from . import augmentation
+        require(exp['augmentation_source_sha256'] == file_sha(Path(augmentation.__file__)), 'Augmentation source drift')
     require(exp['version'] == spec['version'] and exp['profile'] == spec['profiles'][exp['profile_name']]
             and exp['experiment_config_sha256'] == spec['_sha256'], 'Experimental profile/config drift')
     require(read_json(checkpoint / 'agri_provenance.json') == read_json(bundle / 'provenance.json'), 'Base contract differs')
@@ -507,6 +535,8 @@ def load_checkpoint(c, checkpoint):
         require(all(torch.allclose(saved[f'action.{k}'].cpu(), torch.tensor(wanted[k]), atol=1e-7)
                     for k in ('mean', 'std')), 'Processor statistics differ')
     policy.eval()
+    from .inference_sampling import configure_inference
+    configure_inference(policy,exp['profile'])
     return policy, pre, post
 
 
@@ -516,7 +546,7 @@ def evaluate_saved(stage, checkpoint, output, *, reference_evaluation=None):
     c = load_training_config(root / 'configs/training_v0.yaml')
     contract_file = Path(checkpoint) / 'small_experiment.json'
     config_name = read_json(contract_file).get('experiment_config_file', 'small_cases_v1.yaml') if contract_file.exists() else 'small_cases_v1.yaml'
-    require(config_name in ('small_cases_v1.yaml', 'small_cases_v2.yaml', 'small_cases_v3.yaml', 'small_cases_v4.yaml', 'small_cases_v5.yaml', 'small_cases_v6.yaml'), 'Unknown experimental config file')
+    require(config_name in ('small_cases_v1.yaml', 'small_cases_v2.yaml', 'small_cases_v3.yaml', 'small_cases_v4.yaml', 'small_cases_v5.yaml', 'small_cases_v6.yaml', 'small_cases_v7.yaml', 'small_cases_v8.yaml', 'small_cases_v9.yaml', 'small_cases_v10.yaml'), 'Unknown experimental config file')
     spec = load_experiment(root / 'configs' / config_name)
     selected = selection(c, stage)
     output = Path(output).resolve(); new_output(output)
@@ -539,6 +569,7 @@ def evaluate_saved(stage, checkpoint, output, *, reference_evaluation=None):
     comparison_ok = result.get('reload_comparison', {}).get('passed', True)
     result |= {'status': 'reload_mismatch' if not comparison_ok else 'passed' if gate_passed else 'gate_not_met',
                'load_and_inference_verified': True, 'stage': stage, 'checkpoint': str(Path(checkpoint).resolve()),
+               'adapter_sha256': file_sha(Path(checkpoint) / 'adapter_model.safetensors'),
                'gate_passed': gate_passed, 'num_steps': policy.config.num_steps,
                'scope': 'fresh-process reload, TRAIN diagnostic only', 'optimizer_steps_performed': 0}
     write_json(output, result)
@@ -551,6 +582,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', choices=tuple(STAGES), required=True)
     parser.add_argument('--profile')
+    parser.add_argument('--evaluate-stage', choices=tuple(STAGES))
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--steps', type=int)
     parser.add_argument('--init-checkpoint', type=Path)
@@ -566,7 +598,7 @@ def main():
         require(args.profile is not None, 'Training requires --profile')
         require(args.reference_evaluation is None, 'Reference evaluation is only used for reload checks')
         r = run(args.stage, args.profile, args.output, steps=args.steps, init_checkpoint=args.init_checkpoint,
-                resume_checkpoint=args.resume_checkpoint,
+                resume_checkpoint=args.resume_checkpoint, evaluate_stage=args.evaluate_stage,
                 experiment_config=args.experiment_config)
         raise SystemExit(1 if r['status'] == 'error' else 0)
 

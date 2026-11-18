@@ -1,0 +1,18 @@
+# Diverse TRAIN280 pilot; evaluate nested60, select only by independent VAL.
+# Endpoint conditional regression for singleton deterministic actions.
+# Native forward/update; x_t=noise at t=1, one native Euler step at inference.
+version: agri_small_cases_v9
+seed: 42
+screen_seeds: [0, 42]
+certificate_seeds: [0, 1, 2, 3, 42]
+warmup_steps: 20
+max_steps: 1000
+evaluate_at: [100, 300, 600, 1000]
+profiles:
+  r8_wide_b4_n1_t1_lr1e4: {rank: 8, alpha: 8, lr: 0.0001, full_projections: false, batch_size: 4, num_steps: 1, time_sampling: endpoint_t1, expert_targets: all_linear}
+  r8_wide_b4_n1_t1_lr3e4: {rank: 8, alpha: 8, lr: 0.0003, full_projections: false, batch_size: 4, num_steps: 1, time_sampling: endpoint_t1, expert_targets: all_linear}
+gates:
+  micro8: {exact: 1.0, zone: 1.0, stop: 1.0}
+  cases32: {exact: 1.0, zone: 1.0, stop: 1.0}
+  cases60: {exact: 1.0, zone: 1.0, stop: 1.0}
+  cases280: {exact: 1.0, zone: 1.0, stop: 1.0}

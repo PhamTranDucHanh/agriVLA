@@ -6,14 +6,14 @@ from .dataset import require, read_jsonl
 from .policy import load_unique_yaml
 from .training import file_sha
 
-STAGES = {'micro8': 8, 'cases32': 32, 'cases60': 60}
+STAGES = {'micro8': 8, 'cases32': 32, 'cases60': 60, 'cases280':280}
 PROJECTIONS = ['action_in_proj', 'action_out_proj', 'action_time_mlp_in', 'action_time_mlp_out']
 
 
 def load_experiment(path):
     path = Path(path).resolve()
     c = load_unique_yaml(path.read_bytes(), context='small cases')
-    require(c['version'] in ('agri_small_cases_v1', 'agri_small_cases_v2', 'agri_small_cases_v3', 'agri_small_cases_v4', 'agri_small_cases_v5', 'agri_small_cases_v6'), 'Unknown experiment version')
+    require(c['version'] in tuple(f'agri_small_cases_v{i}' for i in range(1,11)), 'Unknown experiment version')
     require(c['seed'] == 42 and c['screen_seeds'] == [0, 42]
             and c['certificate_seeds'] == [0, 1, 2, 3, 42], 'Evaluation seeds must be frozen')
     require(c['warmup_steps'] == 20 and c['max_steps'] == 1000
@@ -23,22 +23,31 @@ def load_experiment(path):
         if c['version'] != 'agri_small_cases_v1':
             fields.add('batch_size')
             require(type(profile.get('batch_size')) is int and profile['batch_size'] in (1, 2, 4), 'Unsupported batch size')
-        if c['version'] in ('agri_small_cases_v4', 'agri_small_cases_v5', 'agri_small_cases_v6'):
+        if c['version'] in tuple(f'agri_small_cases_v{i}' for i in range(4,11)):
             fields.add('num_steps')
             require(type(profile.get('num_steps')) is int and profile['num_steps'] in (1, 2, 4, 10, 20), 'Unsupported native sampling steps')
-        if c['version'] == 'agri_small_cases_v5':
+        if c['version'] in ('agri_small_cases_v5', 'agri_small_cases_v7','agri_small_cases_v8','agri_small_cases_v9','agri_small_cases_v10'):
             fields.add('time_sampling')
             require(profile.get('time_sampling') == 'endpoint_t1' and profile['num_steps'] == 1,
                     'Endpoint training requires one-step inference')
-        if c['version'] == 'agri_small_cases_v6':
+        if c['version'] in ('agri_small_cases_v6', 'agri_small_cases_v7','agri_small_cases_v8','agri_small_cases_v9','agri_small_cases_v10'):
             fields.add('expert_targets')
             require(profile.get('expert_targets') == 'all_linear' and not profile['full_projections'], 'Unsupported expert scope')
+        if c['version']=='agri_small_cases_v8':
+            fields.add('inference_samples')
+            require(profile.get('inference_samples')==2,'Fixed two-sample mean required')
+        if c['version'] == 'agri_small_cases_v10':
+            fields.add('training_augmentation')
+            require(profile.get('training_augmentation') == 'override_image_mix_v1' and profile['batch_size'] == 4,
+                    'Unsupported counterfactual image mix')
         require(set(profile) == fields, 'Invalid profile fields')
         require(type(profile['rank']) is int and profile['rank'] in (8, 16)
                 and profile['alpha'] == profile['rank'], 'Unsupported LoRA scaling')
         require(type(profile['lr']) is float and profile['lr'] in (1e-4, 3e-4), 'Unsupported LR')
         require(type(profile['full_projections']) is bool, 'Invalid projection option')
-    for stage in STAGES:
+    required={'micro8','cases32','cases60'} | ({'cases280'} if c['version'] in ('agri_small_cases_v9','agri_small_cases_v10') else set())
+    require(set(c['gates'])==required,'Wrong gate stages')
+    for stage in required:
         gate = c['gates'][stage]
         require(set(gate) == {'exact', 'zone', 'stop'} and all(0 < v <= 1 for v in gate.values()), 'Invalid gate')
     return c | {'_path': str(path), '_sha256': file_sha(path)}
@@ -60,7 +69,7 @@ def expert_target_modules(profile):
 
 def compatible_inference_variant(source, target):
     def training_options(profile):
-        p = dict(profile); p.pop('num_steps', None)
+        p = dict(profile); p.pop('num_steps', None);p.pop('inference_samples',None)
         for k, value in {'batch_size': 1, 'expert_targets': 'qv', 'time_sampling': 'upstream_beta'}.items():
             p.setdefault(k, value)
         return p
@@ -104,6 +113,20 @@ def select_items(items, stage):
     require(len(permutations) == 11, 'Expected eleven permutation controls')
     chosen.extend(permutations)
     keys = micro if stage == 'micro8' else chosen[:16] if stage == 'cases32' else chosen
+    if stage == 'cases280':
+        import hashlib,json
+        keys=list(chosen)
+        for intent in sorted({row(k)['intent'] for k in cases}):
+            existing=[k for k in keys if row(k)['intent']==intent]
+            candidates=[k for k in cases if row(k)['intent']==intent and k not in keys]
+            candidates.sort(key=lambda k:hashlib.sha256(k.encode()).hexdigest())
+            def wording(k):return tuple(sorted((x['source_record']['language'],x['source_record']['instruction']) for x in pairs[k]))
+            words={wording(k) for k in existing};scenes={row(k)['scene_id'] for k in existing};targets={tuple(row(k)['target_action']) for k in existing}
+            while len(existing)<20:
+                require(candidates,'Not enough diverse train pairs')
+                best=max(candidates,key=lambda k:(wording(k) not in words,row(k)['scene_id'] not in scenes,tuple(row(k)['target_action']) not in targets))
+                keys.append(best);existing.append(best);candidates.remove(best)
+                words.add(wording(best));scenes.add(row(best)['scene_id']);targets.add(tuple(row(best)['target_action']))
     require(len(keys) == len(set(keys)) == STAGES[stage] // 2, 'Selection case accounting mismatch')
     selected = sorted([x for k in keys for x in pairs[k]], key=lambda x: x['episode_index'])
     records = [x['source_record'] for x in selected]

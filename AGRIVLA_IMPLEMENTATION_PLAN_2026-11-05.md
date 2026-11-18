@@ -1,5 +1,15 @@
 # AgriVLA-Soybean-v0 — kế hoạch dataset và fine-tune trên GPU 4 GB
 
+**Điểm dừng hiện hành16/11 sau GPU K/V:** hai pilot matched300 đã hoàn tất, không full/TEST. MeanVALID1128,57%→8,75% chưa đủ margin/CI/seed criteria, TRAIN28038,21%; không promote candidate hay mở full gate. Kỹ thuật GPU/native resume/freshreload/HTTPsameB1 PASS,24testsPASS. Đọc [LATE_VLM_GPU_2026-11-16.md](agri-soybean-vla/LATE_VLM_GPU_2026-11-16.md) trước các dòng lịch sử bên dưới. Hướng tiếp có điều kiện: frozen intent/parameters/wilt representation probes trước khi chọn thêm đúng một kỹ thuật; chưa chạy thí nghiệm mới. [FULL_LATE_VLM_GUIDE.md](agri-soybean-vla/FULL_LATE_VLM_GUIDE.md) có typed full command bị khóa cho tới khi có recipe đủ bằng chứng; dataset vẫn original WORDING_V1 TRAIN3600/VAL720/TEST720, không dùng counterfactual trong full plan này. Giữ model cũ, gates, vendor, stats, tokenizer và split. Không tự chuyển sang full hoặc TEST.
+
+<!-- current-20261116 -->
+## Hiện hành 16/11 — dò TRAIN nhỏ → VAL, chưa sẵn sàng full train
+
+Người dùng đã cho tiếp tục thí nghiệm, ưu tiên cân bằng và tiết kiệm disk. Branch thực tế hiện là `feat/improve-accuracy`; giữ nguyên branch đang mở, không checkout/commit/push. Chi tiết/lệnh tái lập: [OPTIMIZATION_2026-11-16.md](agri-soybean-vla/OPTIMIZATION_2026-11-16.md). Endpoint TRAIN60 single299/300; MC2 đạt300/300 nhưng fixed VAL112 chỉ6/112, STOP0/16, kém OFF36/112; đã loại MC2, không train tiếp60 để săn100%. Đang kiểm TRAIN280 (40/intent, VI140/EN140,164câu/115scene), single endpointB4/r8wide/LR1e-4;100updates TRAIN27,14%, VAL6,25%; native resume tới300 đã xong, đang đo TRAIN280/VAL112. CPU audit1176pixel tensors/task/target/state đều khớpraw, fullTRAINstats giữ nguyên. Không dùng TEST để dò ở lượt này.
+
+Full runner có kiểm TRAIN capacity/fresh-reload **và VAL sanity bắt buộc**, policybalanced_v1 khai báo trướcVALpilot; strict100% cũ không bị sửa. Chưa tạo full_ready.json hoặc chạy full100GPU/6000 mới. scripts/full_run.sh chuẩn bị workflow chia phase/VAL chọnbest/TESTcuối/giữbest+latest/webHTTP, unit tests không phải GPU end-to-end proof. Budget artifactmới1GiB, shareHFcache/noexport/no modeldownload, không sửavendor/data/modelcũ hoặccommit/push. selected.env vẫntrỏmodel15/11, chưa tựchuyểnweb sangmodelFAILVAL. Các phần15/11 và bước0–9 dưới đây là lịch sử.
+<!-- /current-20261116 -->
+
 Ngày: 2026-11-05. Nhánh triển khai: `feat/compose-dataset`.
 
 **Trạng thái tài liệu:** kế hoạch tổng thể và tiến độ bàn giao. Bước0–6 và browser4.5 đã chạy thật ở phạm vi CPU; CLI model/prepare/infer/evaluate/train-upstream đã có, bước7–9 chưa hoàn thành. Dataset JSONL và LeRobot v3 đã QA/round-trip CPU; VRAM và chất lượng model còn phải đo.

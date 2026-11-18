@@ -138,3 +138,26 @@ def test_expert_scope_expands_without_targeting_frozen_vlm_or_dropping_adapters(
         assert re.fullmatch(regex, 'model.vlm_with_expert.lm_expert.layers.0.' + name)
         assert not re.fullmatch(regex, 'model.vlm_with_expert.vlm.text_model.layers.0.' + name)
     assert re.fullmatch(regex, 'model.action_out_proj')
+
+
+def test_validation_probe_balances_intents_languages_and_wording(tmp_path):
+    import json
+    from collections import Counter
+    from agri_vla.evaluation import fixed_validation_selection
+    folder=tmp_path/'data/val';folder.mkdir(parents=True)
+    rows=[]
+    for intent in ('AUTO','WORST_ONLY','ZONE_ONLY','CAP_LEVEL','EXCLUDE_ZONE','STOP_ALL','WATER_ALL'):
+        for wording in ('seen','unseen'):
+            for j in range(16):
+                for lang in ('vi','en'):
+                    rows.append({'episode_index':len(rows),'source_record':{'sample_id':f'{intent}-{wording}-{j}-{lang}',
+                        'translation_pair_id':f'{intent}-{wording}-{j}','wording_partition':wording,
+                        'intent':intent,'language':lang,'target_action':[j//4,j%4,0]}})
+    (folder/'sample_metadata.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    c={'_base':tmp_path,'dataset_root':'data','seed':42}
+    a=fixed_validation_selection(c,112);b=fixed_validation_selection(c,112)
+    assert a==b
+    selected=[rows[i]['source_record'] for i in a['episodes']]
+    assert set(Counter(r['intent'] for r in selected).values())=={16}
+    assert Counter(r['language'] for r in selected)=={'vi':56,'en':56}
+    assert Counter(r['wording_partition'] for r in selected)=={'seen':56,'unseen':56}

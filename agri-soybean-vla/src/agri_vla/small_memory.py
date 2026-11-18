@@ -66,18 +66,77 @@ def run(checkpoint, output):
     unchanged = all(torch.equal(p.detach().cpu(), before[n]) for n, p in trainable.items())
     require(finite and unchanged and len(images) == 3, 'Bad stress forward/backward or mutated weights')
     require(all(x['shape'] == [batch_size, 3, 256, 256] for x in images), 'Camera resolution/batch differs')
+    training_images = list(images)
+    train_allocated, train_reserved = torch.cuda.max_memory_allocated(), torch.cuda.max_memory_reserved()
+    augmentation_stress = None
+    if exp['profile'].get('training_augmentation'):
+        from .augmentation import mix_override_images
+        opt.zero_grad(set_to_none=True)
+        stop_episode = next(x['episode_index'] for x in items if x['source_record']['intent'] == 'STOP_ALL')
+        mixed_episodes = [*episodes[:3], stop_episode]
+        mixed_cfg = train_config(c, root / c['bundle'], output=output.parent / 'unused-mix-stress',
+                                 device='cuda', episodes=mixed_episodes)
+        mixed_ds, mixed_ev = make_train_eval_datasets(mixed_cfg)
+        require(mixed_ev is None and len(mixed_ds) == 4, 'Wrong mixed stress data')
+        mixed_inputs = pre(next(iter(DataLoader(mixed_ds, batch_size=4, num_workers=0))))
+        records = {r['episode_index']: r['source_record'] for r in items}
+        images.clear(); torch.cuda.reset_peak_memory_stats()
+        mixed_audit = mix_override_images(mixed_inputs, records, step=restored_step + 1, profile=exp['profile'])
+        require(mixed_audit['rows_replaced'] == 1, 'Mixed stress must exercise STOP image augmentation')
+        with torch.autocast('cuda', dtype=torch.float16):
+            mixed_loss, _ = policy.forward(mixed_inputs)
+        mixed_scaler = torch.amp.GradScaler('cuda', init_scale=1024., growth_interval=2000)
+        mixed_scaler.scale(mixed_loss).backward(); mixed_scaler.unscale_(opt)
+        mixed_norm = torch.nn.utils.clip_grad_norm_(list(trainable.values()), 10.)
+        torch.cuda.synchronize()
+        require(bool(torch.isfinite(mixed_loss)) and bool(torch.isfinite(mixed_norm))
+                and all(p.grad is None or bool(torch.isfinite(p.grad).all()) for p in trainable.values()), 'Nonfinite mixed stress')
+        require(all(torch.equal(p.detach().cpu(), before[n]) for n, p in trainable.items()), 'Mixed stress changed weights')
+        require(len(images) == 3 and all(x['shape'] == [4, 3, 256, 256] for x in images), 'Mixed stress cameras differ')
+        augmentation_stress = {'augmentation': mixed_audit, 'vision_encoder_inputs': list(images),
+                               'actual_token_counts': mixed_inputs['observation.language.attention_mask'].sum(-1).cpu().tolist(),
+                               'finite_gradients': True, 'weights_unchanged': True, 'optimizer_steps_performed': 0}
+        train_allocated = max(train_allocated, torch.cuda.max_memory_allocated())
+        train_reserved = max(train_reserved, torch.cuda.max_memory_reserved())
+    # VAL can contain longer wording than TRAIN. Check inference separately with
+    # its raw input allowlist; no held-out target participates in backward.
+    from .evaluation import data_loader, model_batch, predict_batch
+    val_items = read_jsonl(root / c['dataset_root'] / 'val/sample_metadata.jsonl')
+    val_lengths = {r['episode_index']: len(tok.input_tokenizer(prompt_text(r['source_record']['instruction']), truncation=False)['input_ids']) for r in val_items}
+    val_episode = max(val_lengths, key=val_lengths.get)
+    val_loader, _ = data_loader(c, policy.config, 'val', indices=[val_episode])
+    val_batch = next(iter(val_loader))
+    opt.zero_grad(set_to_none=True)
+    policy.eval()
+    del opt, scheduler
+    import gc
+    gc.collect(); torch.cuda.empty_cache()
+    images.clear(); torch.cuda.reset_peak_memory_stats()
+    val_inputs = pre(model_batch(val_batch))
+    val_counts = val_inputs['observation.language.attention_mask'].sum(-1).detach().cpu().tolist()
+    require(val_counts == [val_lengths[val_episode]] and val_counts[0] <= 96, 'Longest VAL prompt truncated')
+    prediction = predict_batch(policy, pre, post, val_batch, seed=42)
+    torch.cuda.synchronize()
+    require(len(images) == 3 and all(x['shape'] == [1, 3, 256, 256] for x in images), 'Longest VAL inference cameras differ')
+    val_probe = {'split': 'val', 'episode': val_episode, 'actual_token_counts': val_counts,
+                 'vision_encoder_inputs': list(images), 'prediction': prediction,
+                 'torch_peak_allocated': torch.cuda.max_memory_allocated(),
+                 'torch_peak_reserved': torch.cuda.max_memory_reserved(), 'optimizer_steps_performed': 0}
     nv = subprocess.run(['/usr/lib/wsl/lib/nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,noheader,nounits'], capture_output=True, text=True, check=True)
     used, total = map(int, nv.stdout.strip().splitlines()[0].split(','))
     report = {'status': 'pass', 'scope': 'longest TRAIN prompt, resource check only', 'checkpoint': str(checkpoint),
+              'profile': exp['profile'], 'training_time_sampling': getattr(policy.get_base_model().model, '_agri_time_sampling_audit', {'mode':'upstream_beta'}),
               'source_metadata_sha256': file_sha(metadata), 'batch_size': batch_size, 'episodes': episodes,
               'longest_train_tokens': longest, 'actual_token_counts': counts, 'tokenizer_capacity': 96,
-              'instructions': raw['task'], 'vision_encoder_inputs': images, 'loss': float(loss), 'grad_norm_before_clip': float(norm),
+              'instructions': raw['task'], 'vision_encoder_inputs': training_images, 'loss': float(loss), 'grad_norm_before_clip': float(norm),
               'finite_gradients': finite, 'weights_unchanged': unchanged, 'optimizer_steps_performed': 0,
               'native_optimizer_state_loaded': True, 'restored_training_step': restored_step,
-              'torch_peak_allocated': torch.cuda.max_memory_allocated(), 'torch_peak_reserved': torch.cuda.max_memory_reserved(),
+              'torch_peak_allocated': train_allocated, 'torch_peak_reserved': train_reserved,
+              'augmentation_stress': augmentation_stress,
+              'longest_validation_inference': val_probe,
               'nvml_end_used_mib': used, 'nvml_total_mib': total, 'nvml_is_end_snapshot_not_peak': True,
               'forward_backward_seconds': elapsed}
-    write_json(output, report); handle.remove(); opt.zero_grad(set_to_none=True)
+    write_json(output, report); handle.remove()
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
     return report
 

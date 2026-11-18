@@ -1,0 +1,24 @@
+{
+  "version": "counterfactual_train_v1",
+  "seed": 42,
+  "source_manifest": "data/manifests/wording_v1/train.jsonl",
+  "dataset_lock_sha256": "92111dfa8086eef77b90e9ac47003c43f1847ea07a899e1df3c6232d2f977ba3",
+  "train_stats_sha256": "b06849340aa520815152fd63921b3602ab9278f7c3fd242e600c6a33a086c78f",
+  "policy": "agri_vla.revision.revision_action",
+  "scene_case_slots": 4,
+  "extra_synonym_pairs_per_scene": 1,
+  "keep_all_original_records": true,
+  "wording_pool": "exact_observed_TRAIN_translation_pairs_only",
+  "sampling": {
+    "version": "coverage_then_source_deficit_v1",
+    "scene_visits": 2880,
+    "max_visits_per_scene": 3,
+    "max_camera_visits_per_source_image": 32,
+    "unit": "VI_EN_pair",
+    "selection": "coverage_all_scenes_then_rare_group_image;intent_param_family_deficit"
+  },
+  "model_input_keys": ["observation.images.camera1", "observation.images.camera2", "observation.images.camera3", "observation.state", "task"],
+  "tokenizer_max_length": 96,
+  "output": "reports/counterfactual-train-v1",
+  "max_artifact_mib": 200
+}
