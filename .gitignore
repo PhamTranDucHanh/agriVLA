@@ -63,6 +63,8 @@
 !agri-soybean-vla/src/agri_vla/web/*.js
 !agri-soybean-vla/scripts/
 !agri-soybean-vla/scripts/*.sh
+!agri-soybean-vla/deploy.sh
+!agri-soybean-vla/deploy_web.sh
 !agri-soybean-vla/configs/
 !agri-soybean-vla/configs/*.yaml
 !agri-soybean-vla/configs/*.json
